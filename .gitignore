@@ -1,8 +1,14 @@
 kronos/__pycache__/
 tutorials/utils/__pycache__/
+tutorials/chl_maps_dataset/
+tutorials/codex_dataset/
 KRONOS.egg-info/
 model_assets/
 docs/joint_logo_1.ai
 __pycache__/ca_mea.cpython-312.pyc
 .vscode/launch.json
-
+.claudeignore
+.venv
+.venv_gl
+archive/
+output/
