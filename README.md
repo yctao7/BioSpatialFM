@@ -1,3 +1,8 @@
+CUSTOM USAGE:
+1. Run tutorials/1 - Data-Download-And-Preprocessing_codex.ipynb to generate metadata
+2. run_extract.sh to crop 256*256 image patches
+3. run_finetune.sh to finetune the model
+
 KRONOS 
 ===========
 ## A Foundation Model for Spatial Proteomics 
