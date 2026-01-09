@@ -3,6 +3,9 @@ CUSTOM USAGE:
 2. run_extract.sh to crop 256*256 image patches
 3. run_finetune.sh to finetune the model
 
+Donors of interest:
+<img src="docs/doi.jpg"/>
+
 KRONOS 
 ===========
 ## A Foundation Model for Spatial Proteomics 
