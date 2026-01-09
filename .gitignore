@@ -2,6 +2,7 @@ kronos/__pycache__/
 tutorials/utils/__pycache__/
 tutorials/chl_maps_dataset/
 tutorials/codex_dataset/
+tutorials/metadata/
 KRONOS.egg-info/
 model_assets/
 docs/joint_logo_1.ai
@@ -12,3 +13,4 @@ __pycache__/ca_mea.cpython-312.pyc
 .venv_gl
 archive/
 output/
+*.csv
