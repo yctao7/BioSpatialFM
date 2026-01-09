@@ -4,7 +4,7 @@ CUSTOM USAGE:
 3. run_finetune.sh to finetune the model
 
 Donors of interest:
-<img src="docs/doi.jpg"/>
+<img src="docs/doi.png"/>
 
 KRONOS 
 ===========
