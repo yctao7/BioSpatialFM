@@ -6,6 +6,9 @@ CUSTOM USAGE:
 Donors of interest:
 <img src="docs/doi.png"/>
 
+TODO:
+1. mean and std are now calculated on all image patches, should remove empty?
+
 KRONOS 
 ===========
 ## A Foundation Model for Spatial Proteomics 
