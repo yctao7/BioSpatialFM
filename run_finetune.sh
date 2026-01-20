@@ -7,6 +7,7 @@
 DATA_PATH="tutorials/codex_dataset/patches"  # Change this to your data path
 OUTPUT_DIR="output/finetune3"
 MODEL_TYPE="vits16"  # or "vitl16"
+PRETRAINED_WEIGHTS="./model_assets/models--MahmoodLab--kronos/snapshots/8edc2719ad67b2e2b766073b35c6cf8e6f5da516/kronos_vits16_model.pt"
 
 # Training settings
 BATCH_SIZE=16
@@ -23,6 +24,7 @@ python finetune_kronos.py \
     --data_path ${DATA_PATH} \
     --output_dir ${OUTPUT_DIR} \
     --model_type ${MODEL_TYPE} \
+    --pretrained_weights ${PRETRAINED_WEIGHTS} \
     --batch_size ${BATCH_SIZE} \
     --epochs ${EPOCHS} \
     --lr ${LR} \

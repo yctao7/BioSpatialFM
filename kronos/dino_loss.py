@@ -39,6 +39,7 @@ class DINOLoss(nn.Module):
         self.center_momentum = center_momentum
         self.ncrops = ncrops
         self.register_buffer("center", torch.zeros(1, out_dim))
+        self.register_buffer("center_patches", torch.zeros(1, out_dim)) # Add: patch level centered vector
         
         # Teacher temperature schedule
         self.teacher_temp_schedule = torch.cat((
@@ -46,7 +47,7 @@ class DINOLoss(nn.Module):
             torch.ones(nepochs - warmup_teacher_temp_epochs) * teacher_temp
         ))
         
-    def forward(self, student_output, teacher_output, epoch):
+    def forward(self, student_output, teacher_output, student_patch_out, teacher_patch_out, masks, epoch): # Add: parameters
         """
         Cross-entropy between softmax outputs of the teacher and student networks.
         
@@ -76,12 +77,24 @@ class DINOLoss(nn.Module):
                 n_loss_terms += 1
                 
         total_loss /= n_loss_terms
-        self.update_center(teacher_output)
+
+        patch_loss = 0 #Add : patch loss
+        if student_patch_out is not None and teacher_patch_out is not None and masks is not None:
+            t_patch = F.softmax((teacher_patch_out - self.center_patches) / temp, dim=-1)
+            t_patch = t_patch.detach()
+
+            s_patch = F.log_softmax(student_patch_out / self.student_temp, dim=-1)
+
+            loss_mism = torch.sum(-t_patch * s_patch, dim=-1)
+            mask_val = masks.flatten()
+            patch_loss = torch.sum(loss_mism * mask_val) / mask_val.sum().clamp(min=1.0)
+
+        self.update_center(teacher_output, teacher_patch_out)
         
-        return total_loss
+        return total_loss + patch_loss #Add: patch loss
 
     @torch.no_grad()
-    def update_center(self, teacher_output):
+    def update_center(self, teacher_output, teacher_patch_out=None):
         """
         Update center used for teacher output with exponential moving average.
         """
@@ -96,6 +109,17 @@ class DINOLoss(nn.Module):
         
         # EMA update
         self.center = self.center * self.center_momentum + batch_center * (1 - self.center_momentum)
+
+        if teacher_patch_out is not None:
+            batch_center_p = torch.sum(teacher_patch_out, dim=0, keepdim=True)
+
+            if dist.is_initialized():
+                dist.all_reduce(batch_center_p)
+                batch_center_p = batch_center_p / dist.get_world_size()
+
+            batch_center_p = batch_center_p / len(teacher_patch_out)
+
+            self.center_patches = self.center_patches * self.center_momentum + batch_center_p * (1 - self.center_momentum)
 
 
 class MultiCropWrapper(nn.Module):

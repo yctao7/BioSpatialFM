@@ -151,9 +151,16 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
         
         # Forward pass
         with torch.cuda.amp.autocast(fp16_scaler is not None):
-            teacher_output = teacher(images[:2], marker_ids=marker_ids[:2])  # Only global views
-            student_output = student(images, marker_ids=marker_ids)  # All views
-            loss = dino_loss(student_output, teacher_output, epoch)
+            teacher_ret = teacher(images[:2], marker_ids=marker_ids[:2], is_training=True)  # Only global views
+            student_ret = student(images, marker_ids=marker_ids, is_training=True)  # All views
+            loss = dino_loss(
+                student_output=student_ret["x_norm_clstoken"],     # CLS token
+                teacher_output=teacher_ret["x_norm_clstoken"],     # CLS token
+                student_patch_out=student_ret["x_norm_patchtokens"], # Patch tokens (for MIM)
+                teacher_patch_out=teacher_ret["x_norm_patchtokens"], # Patch tokens (for MIM)
+                masks=student_ret["masks"],                         # Mask information
+                epoch=epoch
+            )
         
         if not torch.isfinite(loss):
             print(f"Loss is {loss}, stopping training")
