@@ -9,7 +9,7 @@ import time
 import json
 from pathlib import Path
 
-import torch
+import torch    
 import torch.nn as nn
 import torch.distributed as dist
 import torch.backends.cudnn as cudnn
@@ -151,14 +151,19 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
         
         # Forward pass
         with torch.cuda.amp.autocast(fp16_scaler is not None):
-            teacher_ret = teacher(images[:2], marker_ids=marker_ids[:2], is_training=True)  # Only global views
-            student_ret = student(images, marker_ids=marker_ids, is_training=True)  # All views
+            # Teacher forward - only global views (first 2 crops)
+            teacher_ret = teacher(images[:2], marker_ids=marker_ids[:2])
+            
+            # Student forward - all views
+            student_ret = student(images, marker_ids=marker_ids)
+            
+            # Compute loss
             loss = dino_loss(
-                student_output=student_ret["x_norm_clstoken"],     # CLS token
-                teacher_output=teacher_ret["x_norm_clstoken"],     # CLS token
-                student_patch_out=student_ret["x_norm_patchtokens"], # Patch tokens (for MIM)
-                teacher_patch_out=teacher_ret["x_norm_patchtokens"], # Patch tokens (for MIM)
-                masks=student_ret["masks"],                         # Mask information
+                student_output=student_ret["x_norm_clstoken"],           # [B*ncrops, out_dim]
+                teacher_output=teacher_ret["x_norm_clstoken"],           # [B*2, out_dim]
+                student_patch_out=student_ret.get("x_norm_patchtokens"), # [B*ncrops, num_patches, out_dim] or None
+                teacher_patch_out=teacher_ret.get("x_norm_patchtokens"), # [B*2, num_patches, out_dim] or None
+                masks=student_ret.get("masks"),                          # [B*ncrops, num_patches] or None
                 epoch=epoch
             )
         
@@ -192,16 +197,17 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
         metric_logger.update(loss=loss.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
+        
+        # logging per 50 iteration
+        if it % 50 == 0:
+            current_lr = optimizer.param_groups[0]["lr"]
+            current_wd = optimizer.param_groups[0]["weight_decay"]
+            print(f"  [Iter {it:4d}] Loss: {loss.item():.4f} | LR: {current_lr:.8f} | WD: {current_wd:.6f}")
     
     # Gather stats from all processes
     metric_logger.synchronize_between_processes()
     print(f"Averaged stats: {metric_logger}")
-
-    if it % 10 == 0:
-        # 打印 student backbone 第一层的梯度范数
-        grad_norm = sum(p.grad.data.norm(2).item() for p in student.parameters() if p.grad is not None)
-        print(f"Iteration {it}, LR: {lr_schedule[it_global]:.6f}, Grad Norm: {grad_norm:.4f}")
-
+    
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -249,7 +255,10 @@ class MetricLogger:
     def __str__(self):
         loss_str = []
         for name, meter in self.meters.items():
-            loss_str.append(f"{name}: {meter.avg:.4f}")
+            if name == 'lr':
+                loss_str.append(f"{name}: {meter.avg:.8f}")  
+            else:
+                loss_str.append(f"{name}: {meter.avg:.4f}")
         return self.delimiter.join(loss_str)
     
     def synchronize_between_processes(self):
@@ -331,7 +340,7 @@ def save_checkpoint(state, filename='checkpoint.pth'):
 def load_checkpoint(checkpoint_path, student, teacher, optimizer, fp16_scaler):
     """Load checkpoint."""
     print(f"Loading checkpoint from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     
     student.load_state_dict(checkpoint['student'])
     teacher.load_state_dict(checkpoint['teacher'])
@@ -473,10 +482,18 @@ def main(args):
         {'params': [p for p in student.parameters() if p.requires_grad]},
     ]
     optimizer = torch.optim.AdamW(params_groups, lr=args.lr, weight_decay=args.weight_decay)
+
+    effective_batch = args.batch_size * args.world_size
+    if effective_batch < 32:
+        base_lr = args.lr  
+        print(f"Small batch ({effective_batch}), using LR without scaling: {base_lr}")
+    else:
+        base_lr = args.lr * effective_batch / 256.
+        print(f"Large batch ({effective_batch}), scaling LR: {base_lr}")
     
     # Setup learning rate schedule
     lr_schedule = cosine_scheduler(
-        args.lr * (args.batch_size * args.world_size) / 256.,
+        base_lr,
         args.min_lr,
         args.epochs, len(data_loader),
         warmup_epochs=args.warmup_epochs,
