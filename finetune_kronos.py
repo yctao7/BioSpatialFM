@@ -1,5 +1,6 @@
 """
 Fine-tuning script for KRONOS model using DINO self-supervised learning.
+Now with proper MIM (Masked Image Modeling) support.
 """
 
 import argparse
@@ -17,6 +18,7 @@ from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import numpy as np
+import csv
 from kronos import create_model_from_pretrained
 from kronos.dino_head import DINOHead
 from kronos.dino_loss import DINOLoss, MultiCropWrapper
@@ -28,6 +30,59 @@ from kronos.dataset import (
     collate_fn_multicrop,
     load_marker_metadata
 )
+
+
+class LossLogger:
+    """Logger for tracking and saving loss curves."""
+    def __init__(self, log_dir):
+        self.log_dir = Path(log_dir)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.loss_history = []
+        self.log_file = self.log_dir / 'loss_curves.csv'
+
+        # Initialize CSV file with headers
+        with open(self.log_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['epoch', 'iteration', 'total_loss', 'cls_loss', 'mim_loss', 'lr', 'wd'])
+
+    def log(self, epoch, iteration, total_loss, cls_loss, mim_loss, lr, wd):
+        """Log loss values."""
+        entry = {
+            'epoch': epoch,
+            'iteration': iteration,
+            'total_loss': total_loss,
+            'cls_loss': cls_loss,
+            'mim_loss': mim_loss,
+            'lr': lr,
+            'wd': wd
+        }
+        self.loss_history.append(entry)
+
+        # Append to CSV file
+        with open(self.log_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([epoch, iteration, total_loss, cls_loss, mim_loss, lr, wd])
+
+    def save_epoch_summary(self, epoch, train_stats):
+        """Save epoch summary to a separate file."""
+        summary_file = self.log_dir / 'epoch_summary.csv'
+
+        # Check if file exists to write header
+        file_exists = summary_file.exists()
+
+        with open(summary_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(['epoch', 'avg_total_loss', 'avg_cls_loss', 'avg_mim_loss', 'avg_lr', 'avg_wd'])
+
+            writer.writerow([
+                epoch,
+                train_stats.get('loss', 0),
+                train_stats.get('cls_loss', 0),
+                train_stats.get('mim_loss', 0),
+                train_stats.get('lr', 0),
+                train_stats.get('wd', 0)
+            ])
 
 
 def get_args_parser():
@@ -47,7 +102,7 @@ def get_args_parser():
                         help='Per-GPU batch size')
     parser.add_argument('--epochs', default=100, type=int,
                         help='Number of epochs')
-    parser.add_argument('--lr', default=0.0005, type=float,
+    parser.add_argument('--lr', default=0.004, type=float,
                         help='Learning rate')
     parser.add_argument('--min_lr', default=1e-6, type=float,
                         help='Minimum learning rate')
@@ -67,7 +122,7 @@ def get_args_parser():
                         help='Dimensionality of DINO head output')
     parser.add_argument('--norm_last_layer', action='store_true',
                         help='Whether to normalize the last layer of DINO head')
-    parser.add_argument('--momentum_teacher', default=0.996, type=float,
+    parser.add_argument('--momentum_teacher', default=0.992, type=float,
                         help='EMA parameter for teacher update')
     parser.add_argument('--use_bn_in_head', action='store_true',
                         help='Whether to use batch norm in DINO head')
@@ -75,17 +130,25 @@ def get_args_parser():
     # Temperature parameters
     parser.add_argument('--warmup_teacher_temp', default=0.04, type=float,
                         help='Initial teacher temperature')
-    parser.add_argument('--teacher_temp', default=0.04, type=float,
+    parser.add_argument('--teacher_temp', default=0.07, type=float,
                         help='Final teacher temperature')
     parser.add_argument('--warmup_teacher_temp_epochs', default=30, type=int,
                         help='Number of epochs for teacher temperature warmup')
     parser.add_argument('--student_temp', default=0.1, type=float,
                         help='Student temperature')
+    parser.add_argument('--mim_loss_weight', default=1.0, type=float,
+                        help='Weight for MIM loss (relative to CLS loss)')
+    
+    # MIM parameters (NEW)
+    parser.add_argument('--mask_ratio', default=0.4, type=float,
+                        help='Ratio of patches to mask for MIM (0.0 to disable MIM)')
+    parser.add_argument('--mask_global_crops_only', action='store_true', default=True,
+                        help='Only apply masking to global crops (recommended)')
     
     # Augmentation parameters
-    parser.add_argument('--global_crops_scale', default=(0.4, 1.0), type=tuple,
+    parser.add_argument('--global_crops_scale', default=(0.48, 1.0), type=tuple,
                         help='Scale range for global crops')
-    parser.add_argument('--local_crops_scale', default=(0.05, 0.4), type=tuple,
+    parser.add_argument('--local_crops_scale', default=(0.16, 0.48), type=tuple,
                         help='Scale range for local crops')
     parser.add_argument('--local_crops_number', default=8, type=int,
                         help='Number of local crops')
@@ -126,9 +189,9 @@ def get_args_parser():
     return parser
 
 
-def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, 
-                   data_loader, optimizer, lr_schedule, wd_schedule, 
-                   momentum_schedule, epoch, fp16_scaler, args):
+def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
+                   data_loader, optimizer, lr_schedule, wd_schedule,
+                   momentum_schedule, epoch, fp16_scaler, args, loss_logger=None):
     """Train for one epoch."""
     metric_logger = MetricLogger(delimiter="  ")
     header = f'Epoch: [{epoch}/{args.epochs}]'
@@ -151,21 +214,22 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
         
         # Forward pass
         with torch.cuda.amp.autocast(fp16_scaler is not None):
-            # Teacher forward - only global views (first 2 crops)
-            teacher_ret = teacher(images[:2], marker_ids=marker_ids[:2])
+            # Teacher forward - only global views (first 2 crops), no masking
+            teacher_ret = teacher(images[:2], marker_ids=marker_ids[:2], is_student=False)
             
-            # Student forward - all views
-            student_ret = student(images, marker_ids=marker_ids)
+            # Student forward - all views, with masking for MIM
+            student_ret = student(images, marker_ids=marker_ids, is_student=True)
             
-            # Compute loss
-            loss = dino_loss(
+            # Compute loss (now returns total_loss, cls_loss, mim_loss)
+            total_loss, cls_loss, mim_loss = dino_loss(
                 student_output=student_ret["x_norm_clstoken"],           # [B*ncrops, out_dim]
                 teacher_output=teacher_ret["x_norm_clstoken"],           # [B*2, out_dim]
-                student_patch_out=student_ret.get("x_norm_patchtokens"), # [B*ncrops, num_patches, out_dim] or None
-                teacher_patch_out=teacher_ret.get("x_norm_patchtokens"), # [B*2, num_patches, out_dim] or None
-                masks=student_ret.get("masks"),                          # [B*ncrops, num_patches] or None
+                student_patch_out=student_ret.get("x_norm_patchtokens"), # {num_patches: [B*count, num_patches, out_dim]}
+                teacher_patch_out=teacher_ret.get("x_norm_patchtokens"), # {num_patches: [B*2, num_patches, out_dim]}
+                masks=student_ret.get("masks"),                          # {num_patches: [B*count, num_patches]}
                 epoch=epoch
             )
+            loss = total_loss
         
         if not torch.isfinite(loss):
             print(f"Loss is {loss}, stopping training")
@@ -195,14 +259,28 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
         # Logging
         torch.cuda.synchronize()
         metric_logger.update(loss=loss.item())
+        metric_logger.update(cls_loss=cls_loss.item())
+        metric_logger.update(mim_loss=mim_loss.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
-        
+
+        # Log to CSV
+        if loss_logger is not None:
+            loss_logger.log(
+                epoch=epoch,
+                iteration=it_global,
+                total_loss=loss.item(),
+                cls_loss=cls_loss.item(),
+                mim_loss=mim_loss.item(),
+                lr=optimizer.param_groups[0]["lr"],
+                wd=optimizer.param_groups[0]["weight_decay"]
+            )
+
         # logging per 50 iteration
         if it % 50 == 0:
             current_lr = optimizer.param_groups[0]["lr"]
             current_wd = optimizer.param_groups[0]["weight_decay"]
-            print(f"  [Iter {it:4d}] Loss: {loss.item():.4f} | LR: {current_lr:.8f} | WD: {current_wd:.6f}")
+            print(f"  [Iter {it:4d}] Loss: {loss.item():.4f} (CLS: {cls_loss.item():.4f}, MIM: {mim_loss.item():.4f}) | LR: {current_lr:.8f} | WD: {current_wd:.6f}")
     
     # Gather stats from all processes
     metric_logger.synchronize_between_processes()
@@ -361,7 +439,14 @@ def main(args):
     
     # Create output directory
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    
+
+    # Create loss logger
+    loss_logger = None
+    if args.local_rank == 0:
+        log_dir = os.path.join(args.output_dir, 'logs')
+        loss_logger = LossLogger(log_dir)
+        print(f"Loss curves will be saved to {log_dir}")
+
     # Save args
     if args.local_rank == 0:
         with open(os.path.join(args.output_dir, 'args.json'), 'w') as f:
@@ -441,16 +526,27 @@ def main(args):
         use_bn=args.use_bn_in_head,
     )
     
-    # Wrap with MultiCropWrapper
-    student = MultiCropWrapper(student_backbone, student_head)
-    teacher = MultiCropWrapper(teacher_backbone, teacher_head)
+    # Wrap with MultiCropWrapper (now with MIM support)
+    print(f"MIM enabled: mask_ratio={args.mask_ratio}, global_crops_only={args.mask_global_crops_only}")
+    student = MultiCropWrapper(
+        student_backbone, 
+        student_head,
+        mask_ratio=args.mask_ratio,
+        mask_global_crops_only=args.mask_global_crops_only
+    )
+    teacher = MultiCropWrapper(
+        teacher_backbone, 
+        teacher_head,
+        mask_ratio=0.0,  # Teacher never uses masking
+        mask_global_crops_only=True
+    )
     
     # Move to GPU
     student = student.cuda()
     teacher = teacher.cuda()
     
     # Teacher and student start with the same weights
-    teacher.load_state_dict(student.state_dict())
+    teacher.load_state_dict(student.state_dict(), strict=False)
     
     # Teacher is not trained
     for p in teacher.parameters():
@@ -475,6 +571,7 @@ def main(args):
         warmup_teacher_temp_epochs=args.warmup_teacher_temp_epochs,
         nepochs=args.epochs,
         student_temp=args.student_temp,
+        mim_loss_weight=args.mim_loss_weight,
     ).cuda()
     
     # Setup optimizer
@@ -497,6 +594,7 @@ def main(args):
         args.min_lr,
         args.epochs, len(data_loader),
         warmup_epochs=args.warmup_epochs,
+        start_warmup_value = 0.004
     )
     
     # Setup weight decay schedule
@@ -535,9 +633,13 @@ def main(args):
         train_stats = train_one_epoch(
             student, teacher, teacher_without_ddp, dino_loss,
             data_loader, optimizer, lr_schedule, wd_schedule,
-            momentum_schedule, epoch, fp16_scaler, args
+            momentum_schedule, epoch, fp16_scaler, args, loss_logger
         )
-        
+
+        # Save epoch summary
+        if args.local_rank == 0 and loss_logger is not None:
+            loss_logger.save_epoch_summary(epoch, train_stats)
+
         # Save checkpoint
         if args.local_rank == 0:
             if (epoch + 1) % args.saveckp_freq == 0 or epoch == args.epochs - 1:
