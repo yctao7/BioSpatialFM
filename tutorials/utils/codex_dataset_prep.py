@@ -13,11 +13,11 @@ import logging
 
 logging.getLogger('tifffile').setLevel(logging.ERROR)
 
-
 def compute_stats(input_dir, output_dir, level=3):
     if os.path.exists(os.path.join(output_dir, 'marker_info.csv')):
         df_stats = pd.read_csv(os.path.join(output_dir, 'marker_info.csv'))
         return df_stats
+    os.makedirs(output_dir, exist_ok=True)
     stats = defaultdict(lambda: {'n': 0, 'mean': 0, 'm2': 0})
     file_path_list = [file_path for file_path in Path(input_dir).rglob("*") if file_path.is_file()]
     for file_path in tqdm(file_path_list):
@@ -67,6 +67,7 @@ def update_welford(existing_stats, new_data):
     mu_a = existing_stats['mean']
     m2_a = existing_stats['m2']
 
+    new_data = new_data[new_data != 0]
     nb = new_data.size
     mu_b = np.mean(new_data)
     m2_b = np.sum((new_data - mu_b) ** 2)

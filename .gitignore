@@ -14,3 +14,5 @@ __pycache__/ca_mea.cpython-312.pyc
 archive/
 output/
 *.csv
+*.log
+wandb/

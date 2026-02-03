@@ -289,7 +289,9 @@ def extract_patches(input_dir, output_dir):
     patch_extractor = PatchExtractor(patch_size=256, stride=256)
 
     file_path_list = [file_path for file_path in Path(input_dir).rglob("*") if file_path.is_file()]
-    for file_path in tqdm(file_path_list):
+    pbar = tqdm(file_path_list)
+    for file_path in pbar:
+        pbar.set_description(f"Processing {file_path}")
         try:
             tif = tifffile.TiffFile(file_path)
         except:
@@ -314,7 +316,7 @@ def extract_patches(input_dir, output_dir):
         assert C == len(markers)
 
         marker_list, chan_data_list = [], []
-        for i, marker in enumerate(tqdm(markers, leave=False)):
+        for i, marker in enumerate(markers):
             try:
                 chan_data = series.levels[0].asarray(key=i)
                 marker_list.append(marker)
@@ -325,7 +327,7 @@ def extract_patches(input_dir, output_dir):
 
         patches = patch_extractor.extract_patches_from_image(np.stack(chan_data_list, axis=0))
         os.makedirs(output_dir, exist_ok=True)
-        for idx, (patch, (row, col)) in enumerate(tqdm(patches, leave=False)):
+        for idx, (patch, (row, col)) in enumerate(patches):
             if patch.sum() == 0:
                 continue
             with h5py.File(os.path.join(output_dir, f"{file_path.stem}_{row:03d}_{col:03d}.h5"), 'w') as f:

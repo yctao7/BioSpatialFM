@@ -30,6 +30,7 @@ from kronos.dataset import (
     collate_fn_multicrop,
     load_marker_metadata
 )
+import wandb
 
 
 class LossLogger:
@@ -140,7 +141,7 @@ def get_args_parser():
                         help='Weight for MIM loss (relative to CLS loss)')
     
     # MIM parameters (NEW)
-    parser.add_argument('--mask_ratio', default=0.4, type=float,
+    parser.add_argument('--mask_ratio', default=0.5, type=float,
                         help='Ratio of patches to mask for MIM (0.0 to disable MIM)')
     parser.add_argument('--mask_global_crops_only', action='store_true', default=True,
                         help='Only apply masking to global crops (recommended)')
@@ -165,13 +166,13 @@ def get_args_parser():
                         help='Type of dataset')
     parser.add_argument('--marker_metadata', default='tutorials/codex_dataset/dataset/marker_info_with_metadata.csv', type=str,
                         help='Path to marker metadata CSV file')
-    parser.add_argument('--num_workers', default=10, type=int,
+    parser.add_argument('--num_workers', default=8, type=int,
                         help='Number of data loading workers')
     
     # Checkpoint parameters
     parser.add_argument('--output_dir', default='./output/finetune', type=str,
                         help='Path to save checkpoints')
-    parser.add_argument('--saveckp_freq', default=20, type=int,
+    parser.add_argument('--saveckp_freq', default=1, type=int,
                         help='Save checkpoint every x epochs')
     parser.add_argument('--resume', default='', type=str,
                         help='Path to checkpoint to resume from')
@@ -276,15 +277,42 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
                 wd=optimizer.param_groups[0]["weight_decay"]
             )
 
+        current_loss = torch.tensor([loss.item(), cls_loss.item(), mim_loss.item()], device='cuda')
+        
+        if args.distributed:
+            gathered_losses = [torch.zeros_like(current_loss) for _ in range(args.world_size)]
+            dist.all_gather(gathered_losses, current_loss)
+        else:
+            gathered_losses = [current_loss]
+
+        if args.local_rank == 0:
+            log_data = {
+                "iter_lr": optimizer.param_groups[0]["lr"],
+                "iter_wd": optimizer.param_groups[0]["weight_decay"],
+                "global_step": it_global,
+            }
+            for i, l_tensor in enumerate(gathered_losses):
+                log_data[f"rank{i}/iter_loss"] = l_tensor[0].item()
+                log_data[f"rank{i}/iter_cls_loss"] = l_tensor[1].item()
+                log_data[f"rank{i}/iter_mim_loss"] = l_tensor[2].item()
+            log_data["iter_loss"] = sum(l[0] for l in gathered_losses).item() / len(gathered_losses)
+            log_data["iter_cls_loss"] = sum(l[1] for l in gathered_losses).item() / len(gathered_losses)
+            log_data["iter_mim_loss"] = sum(l[2] for l in gathered_losses).item() / len(gathered_losses)
+            wandb.log(log_data)
+
         # logging per 50 iteration
-        if it % 50 == 0:
-            current_lr = optimizer.param_groups[0]["lr"]
-            current_wd = optimizer.param_groups[0]["weight_decay"]
-            print(f"  [Iter {it:4d}] Loss: {loss.item():.4f} (CLS: {cls_loss.item():.4f}, MIM: {mim_loss.item():.4f}) | LR: {current_lr:.8f} | WD: {current_wd:.6f}")
+        # if it % 50 == 0:
+        #     current_lr = optimizer.param_groups[0]["lr"]
+        #     current_wd = optimizer.param_groups[0]["weight_decay"]
+        #     print(f"  [Iter {it:4d}] Loss: {loss.item():.4f} (CLS: {cls_loss.item():.4f}, MIM: {mim_loss.item():.4f}) | LR: {current_lr:.8f} | WD: {current_wd:.6f}")
     
     # Gather stats from all processes
     metric_logger.synchronize_between_processes()
     print(f"Averaged stats: {metric_logger}")
+
+    epoch_stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    if args.local_rank == 0:
+        wandb.log({f"epoch_{k}": v for k, v in epoch_stats.items()}, step=epoch)
     
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -432,10 +460,22 @@ def load_checkpoint(checkpoint_path, student, teacher, optimizer, fp16_scaler):
 def main(args):
     # Setup distributed training
     if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        dist.init_process_group(backend='nccl', init_method=args.dist_url,
-                               world_size=args.world_size, rank=args.local_rank)
-        print(f"Distributed training enabled: rank {args.local_rank}/{args.world_size}")
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        world_size = int(os.environ.get("WORLD_SIZE", 1))
+        global_rank = int(os.environ.get("RANK", 0))
+
+        torch.cuda.set_device(local_rank)
+        
+        dist.init_process_group(
+            backend='nccl',
+            init_method='env://',
+            world_size=world_size,
+            rank=global_rank
+        )
+        
+        args.local_rank = local_rank
+        args.world_size = world_size
+        print(f"Distributed training enabled: rank {global_rank}/{world_size} on local_rank {local_rank}")
     
     # Create output directory
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
@@ -451,6 +491,7 @@ def main(args):
     if args.local_rank == 0:
         with open(os.path.join(args.output_dir, 'args.json'), 'w') as f:
             json.dump(vars(args), f, indent=2)
+        wandb.init(project="KRONOS-Finetune", config=vars(args))
     
     # Load marker metadata if provided
     if args.marker_metadata:
@@ -554,9 +595,10 @@ def main(args):
     
     # Wrap with DDP
     if args.distributed:
-        student = DDP(student, device_ids=[args.local_rank])
-        teacher = DDP(teacher, device_ids=[args.local_rank])
-        teacher_without_ddp = teacher.module
+        student = DDP(student, device_ids=[args.local_rank], find_unused_parameters=True)
+        teacher_without_ddp = teacher
+        # teacher = DDP(teacher, device_ids=[args.local_rank])
+        # teacher_without_ddp = teacher.module
     else:
         teacher_without_ddp = teacher
     
@@ -585,7 +627,7 @@ def main(args):
         base_lr = args.lr  
         print(f"Small batch ({effective_batch}), using LR without scaling: {base_lr}")
     else:
-        base_lr = args.lr * effective_batch / 256.
+        base_lr = args.lr * effective_batch / 128.
         print(f"Large batch ({effective_batch}), scaling LR: {base_lr}")
     
     # Setup learning rate schedule
@@ -594,7 +636,7 @@ def main(args):
         args.min_lr,
         args.epochs, len(data_loader),
         warmup_epochs=args.warmup_epochs,
-        start_warmup_value = 0.004
+        start_warmup_value=args.min_lr # 0.004
     )
     
     # Setup weight decay schedule
