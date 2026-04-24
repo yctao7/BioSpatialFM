@@ -47,11 +47,14 @@ def compute_stats(input_dir, output_dir, level=3):
 
         for i, marker in enumerate(tqdm(markers, leave=False)):
             try:
-                chan_data = series.levels[actual_level].asarray(key=i).astype(np.float32)
+                chan_data = series.levels[actual_level].asarray(key=i).astype(np.float64)
             except Exception as e:
                 print(f"\n[解压失败] 文件损坏: {file_path.name} | 通道: {marker} | 错误: {e}")
                 continue
-            stats[marker] = update_welford(stats[marker], chan_data / np.iinfo(dtype).max)
+            # Always normalize to [0,1] so uint8 / uint16 donors contribute on the same scale.
+            # Matches the dtype-aware normalization done at training time in data_augmentation.Normalization.
+            chan_data /= np.iinfo(dtype).max
+            stats[marker] = update_welford(stats[marker], chan_data)
     
     df_stats = get_final_stats(stats)
     df_stats.to_csv(os.path.join(output_dir, 'marker_info.csv'), index=False)
@@ -69,6 +72,9 @@ def update_welford(existing_stats, new_data):
 
     new_data = new_data[new_data != 0]
     nb = new_data.size
+    if nb == 0:
+            return existing_stats
+
     mu_b = np.mean(new_data)
     m2_b = np.sum((new_data - mu_b) ** 2)
 
