@@ -241,8 +241,8 @@ class DinoVisionTransformer(nn.Module):
         # h0 = h // self.patch_size
         # w0 = w // self.patch_size
 
-        h0_stride = int(np.sqrt(npatch))
-        w0_stride = int(np.sqrt(npatch))
+        h0_stride = (h - self.patch_size) // self.stride_size + 1
+        w0_stride = (w - self.patch_size) // self.stride_size + 1
 
         previous_dtype = x.dtype
         N = self.pos_embed.shape[1] - 1
