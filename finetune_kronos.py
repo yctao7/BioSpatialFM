@@ -4,10 +4,12 @@ Now with proper MIM (Masked Image Modeling) support.
 """
 
 import argparse
+import math
 import os
 import sys
 import time
 import json
+import random
 from pathlib import Path
 
 import torch    
@@ -19,9 +21,16 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import numpy as np
 import csv
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 from kronos import create_model_from_pretrained
 from kronos.dino_head import DINOHead
 from kronos.dino_loss import DINOLoss, MultiCropWrapper
+from kronos.koleo_loss import KoLeoLoss
 from kronos.data_augmentation import get_augmentation_pipeline
 from kronos.dataset import (
     MultiplexImageDataset,
@@ -30,6 +39,87 @@ from kronos.dataset import (
     collate_fn_multicrop,
     load_marker_metadata
 )
+
+
+class BalancedBatchSampler(torch.utils.data.Sampler):
+    """
+    Each batch contains exactly batch_size//2 samples from the primary dataset
+    and batch_size//2 from the secondary dataset (IMC).
+    Primary indices: [0, n_primary)
+    Secondary indices: [n_primary, n_primary + n_secondary)
+    """
+    def __init__(self, n_primary, n_secondary, batch_size):
+        assert batch_size % 2 == 0, "batch_size must be even for balanced sampling"
+        self.n_primary = n_primary
+        self.n_secondary = n_secondary
+        self.half = batch_size // 2
+
+    def __iter__(self):
+        primary_idx = torch.randperm(self.n_primary).tolist()
+        secondary_idx = (torch.randperm(self.n_secondary) + self.n_primary).tolist()
+        n_batches = min(len(primary_idx), len(secondary_idx)) // self.half
+        for i in range(n_batches):
+            batch = (primary_idx[i * self.half:(i + 1) * self.half] +
+                     secondary_idx[i * self.half:(i + 1) * self.half])
+            random.shuffle(batch)
+            yield batch
+
+    def __len__(self):
+        return min(self.n_primary, self.n_secondary) // self.half
+
+
+class DistributedBalancedSampler(torch.utils.data.Sampler):
+    """
+    Distributed-aware balanced sampler: each GPU gets batch_size//2 primary +
+    batch_size//2 secondary samples per batch.
+
+    Works by splitting primary and secondary index pools evenly across ranks,
+    then yielding balanced batches from each rank's shard.
+
+    Primary indices: [0, n_primary)
+    Secondary indices: [n_primary, n_primary + n_secondary)
+    """
+    def __init__(self, n_primary, n_secondary, batch_size, rank, world_size, seed=0):
+        assert batch_size % 2 == 0, "batch_size must be even for balanced sampling"
+        self.n_primary = n_primary
+        self.n_secondary = n_secondary
+        self.half = batch_size // 2
+        self.rank = rank
+        self.world_size = world_size
+        self.seed = seed
+        self.epoch = 0
+
+        # Each rank gets an equal-sized shard; pad if needed
+        self.primary_per_rank = math.ceil(n_primary / world_size)
+        self.secondary_per_rank = math.ceil(n_secondary / world_size)
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+
+        # Shuffle all primary and secondary indices globally, then shard by rank
+        primary_all = torch.randperm(self.n_primary, generator=g).tolist()
+        secondary_all = (torch.randperm(self.n_secondary, generator=g) + self.n_primary).tolist()
+
+        # Pad to make evenly divisible across ranks
+        primary_all += primary_all[:(self.primary_per_rank * self.world_size - len(primary_all))]
+        secondary_all += secondary_all[:(self.secondary_per_rank * self.world_size - len(secondary_all))]
+
+        primary_shard = primary_all[self.rank * self.primary_per_rank:(self.rank + 1) * self.primary_per_rank]
+        secondary_shard = secondary_all[self.rank * self.secondary_per_rank:(self.rank + 1) * self.secondary_per_rank]
+
+        n_batches = min(len(primary_shard), len(secondary_shard)) // self.half
+        for i in range(n_batches):
+            batch = (primary_shard[i * self.half:(i + 1) * self.half] +
+                     secondary_shard[i * self.half:(i + 1) * self.half])
+            random.shuffle(batch)
+            yield batch
+
+    def __len__(self):
+        return min(self.primary_per_rank, self.secondary_per_rank) // self.half
 
 
 class LossLogger:
@@ -96,6 +186,8 @@ def get_args_parser():
                         type=str, help='Path to pretrained weights')
     parser.add_argument('--token_overlap', action='store_true',
                         help='Use token overlap (stride_size=8)')
+    parser.add_argument('--drop_path_rate', default=0.3, type=float,
+                        help='Stochastic depth drop path rate (0.3 for pretraining, 0.1 for fine-tuning)')
     
     # Training parameters
     parser.add_argument('--batch_size', default=16, type=int,
@@ -110,7 +202,7 @@ def get_args_parser():
                         help='Number of warmup epochs')
     parser.add_argument('--weight_decay', default=0.04, type=float,
                         help='Weight decay')
-    parser.add_argument('--weight_decay_end', default=0.4, type=float,
+    parser.add_argument('--weight_decay_end', default=0.1, type=float,
                         help='Final weight decay')
     parser.add_argument('--clip_grad', default=3.0, type=float,
                         help='Gradient clipping')
@@ -138,6 +230,10 @@ def get_args_parser():
                         help='Student temperature')
     parser.add_argument('--mim_loss_weight', default=1.0, type=float,
                         help='Weight for MIM loss (relative to CLS loss)')
+    parser.add_argument('--koleo_loss_weight', default=0.1, type=float,
+                        help='Weight for KoLeo regularization loss (0.0 to disable)')
+    parser.add_argument('--grad_accum_steps', default=1, type=int,
+                        help='Gradient accumulation steps to simulate larger batch size')
     
     # MIM parameters (NEW)
     parser.add_argument('--mask_ratio', default=0.4, type=float,
@@ -159,12 +255,16 @@ def get_args_parser():
     
     # Dataset parameters
     parser.add_argument('--data_path', required=True, type=str,
-                        help='Path to dataset')
+                        help='Path to primary dataset (e.g. CODEX)')
+    parser.add_argument('--data_path_imc', default='', type=str,
+                        help='Path to secondary dataset (e.g. IMC); merged with data_path if provided')
     parser.add_argument('--dataset_type', default='patch', type=str,
                         choices=['folder', 'patch', 'list'],
                         help='Type of dataset')
     parser.add_argument('--marker_metadata', default='tutorials/codex_dataset/dataset/marker_info_with_metadata.csv', type=str,
                         help='Path to marker metadata CSV file')
+    parser.add_argument('--marker_metadata_imc', default='', type=str,
+                        help='Path to IMC marker metadata CSV; merged with --marker_metadata if provided')
     parser.add_argument('--num_workers', default=10, type=int,
                         help='Number of data loading workers')
     
@@ -176,6 +276,12 @@ def get_args_parser():
     parser.add_argument('--resume', default='', type=str,
                         help='Path to checkpoint to resume from')
     
+    # WandB parameters
+    parser.add_argument('--wandb_project', default='', type=str,
+                        help='WandB project name (empty to disable)')
+    parser.add_argument('--wandb_run_name', default='', type=str,
+                        help='WandB run name')
+
     # Distributed training parameters
     parser.add_argument('--distributed', action='store_true',
                         help='Enable distributed training')
@@ -191,76 +297,98 @@ def get_args_parser():
 
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
                    data_loader, optimizer, lr_schedule, wd_schedule,
-                   momentum_schedule, epoch, fp16_scaler, args, loss_logger=None):
-    """Train for one epoch."""
+                   momentum_schedule, epoch, fp16_scaler, args, loss_logger=None,
+                   use_wandb=False, koleo_loss_fn=None):
+    """Train for one epoch with optional gradient accumulation and KoLeo loss."""
     metric_logger = MetricLogger(delimiter="  ")
     header = f'Epoch: [{epoch}/{args.epochs}]'
-    
+
+    grad_accum_steps = getattr(args, 'grad_accum_steps', 1)
+    koleo_weight = getattr(args, 'koleo_loss_weight', 0.0)
+
+    # zero_grad before the loop; will re-zero after each optimizer step
+    optimizer.zero_grad()
+
     for it, (images, marker_ids) in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        # Update learning rate and weight decay according to schedule
+        # Update LR and WD every micro-step
         it_global = len(data_loader) * epoch + it
         for i, param_group in enumerate(optimizer.param_groups):
             param_group["lr"] = lr_schedule[it_global]
-            if i == 0:  # Only first group has weight decay
+            if i == 0:
                 param_group["weight_decay"] = wd_schedule[it_global]
-        
-        # Move images to GPU
+
+        # Move to GPU
         if isinstance(images, list):
             images = [im.cuda(non_blocking=True) for im in images]
             marker_ids = [m.cuda(non_blocking=True) for m in marker_ids]
         else:
             images = images.cuda(non_blocking=True)
             marker_ids = marker_ids.cuda(non_blocking=True)
-        
+
         # Forward pass
         with torch.cuda.amp.autocast(fp16_scaler is not None):
-            # Teacher forward - only global views (first 2 crops), no masking
             teacher_ret = teacher(images[:2], marker_ids=marker_ids[:2], is_student=False)
-            
-            # Student forward - all views, with masking for MIM
             student_ret = student(images, marker_ids=marker_ids, is_student=True)
-            
-            # Compute loss (now returns total_loss, cls_loss, mim_loss)
+
             total_loss, cls_loss, mim_loss = dino_loss(
-                student_output=student_ret["x_norm_clstoken"],           # [B*ncrops, out_dim]
-                teacher_output=teacher_ret["x_norm_clstoken"],           # [B*2, out_dim]
-                student_patch_out=student_ret.get("x_norm_patchtokens"), # {num_patches: [B*count, num_patches, out_dim]}
-                teacher_patch_out=teacher_ret.get("x_norm_patchtokens"), # {num_patches: [B*2, num_patches, out_dim]}
-                masks=student_ret.get("masks"),                          # {num_patches: [B*count, num_patches]}
+                student_output=student_ret["x_norm_clstoken"],
+                teacher_output=teacher_ret["x_norm_clstoken"],
+                student_patch_out=student_ret.get("x_norm_patchtokens"),
+                teacher_patch_out=teacher_ret.get("x_norm_patchtokens"),
+                masks=student_ret.get("masks"),
                 epoch=epoch
             )
-            loss = total_loss
-        
-        if not torch.isfinite(loss):
-            print(f"Loss is {loss}, stopping training")
+
+            # KoLeo loss on backbone CLS tokens of global crops (student only)
+            koleo_loss_val = torch.tensor(0.0, device=total_loss.device)
+            if koleo_loss_fn is not None and koleo_weight > 0:
+                backbone_cls = student_ret.get("backbone_cls_tokens")
+                if backbone_cls is not None:
+                    koleo_loss_val = koleo_loss_fn(backbone_cls)
+                    total_loss = total_loss + koleo_weight * koleo_loss_val
+
+        if not torch.isfinite(total_loss):
+            print(f"Loss is {total_loss}, stopping training")
             sys.exit(1)
-        
-        # Backward pass
-        optimizer.zero_grad()
+
+        # Backward (scale by grad_accum_steps to keep effective loss magnitude)
+        scaled_loss = total_loss / grad_accum_steps
         if fp16_scaler is None:
-            loss.backward()
-            if args.clip_grad:
-                param_norms = clip_gradients(student, args.clip_grad)
-            optimizer.step()
+            scaled_loss.backward()
         else:
-            fp16_scaler.scale(loss).backward()
-            if args.clip_grad:
-                fp16_scaler.unscale_(optimizer)
-                param_norms = clip_gradients(student, args.clip_grad)
-            fp16_scaler.step(optimizer)
-            fp16_scaler.update()
-        
-        # EMA update for teacher
-        with torch.no_grad():
-            m = momentum_schedule[it_global]
-            for param_q, param_k in zip(student.parameters(), teacher_without_ddp.parameters()):
-                param_k.data.mul_(m).add_((1 - m) * param_q.detach().data)
-        
-        # Logging
+            fp16_scaler.scale(scaled_loss).backward()
+
+        # Optimizer step every grad_accum_steps micro-steps (or at end of epoch)
+        is_last_iter = (it + 1 == len(data_loader))
+        if (it + 1) % grad_accum_steps == 0 or is_last_iter:
+            if fp16_scaler is None:
+                if args.clip_grad:
+                    clip_gradients(student, args.clip_grad)
+                cancel_gradients_last_layer(epoch, student, args.freeze_last_layer)
+                optimizer.step()
+            else:
+                if args.clip_grad:
+                    fp16_scaler.unscale_(optimizer)
+                    clip_gradients(student, args.clip_grad)
+                cancel_gradients_last_layer(epoch, student, args.freeze_last_layer)
+                fp16_scaler.step(optimizer)
+                fp16_scaler.update()
+
+            optimizer.zero_grad()
+
+            # EMA teacher update only on actual optimizer steps
+            with torch.no_grad():
+                m = momentum_schedule[it_global]
+                for param_q, param_k in zip(student.parameters(), teacher_without_ddp.parameters()):
+                    param_k.data.mul_(m).add_((1 - m) * param_q.detach().data)
+
+        # Logging (per micro-step)
         torch.cuda.synchronize()
-        metric_logger.update(loss=loss.item())
+        metric_logger.update(loss=total_loss.item())
         metric_logger.update(cls_loss=cls_loss.item())
         metric_logger.update(mim_loss=mim_loss.item())
+        if koleo_weight > 0:
+            metric_logger.update(koleo_loss=koleo_loss_val.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
 
@@ -269,23 +397,39 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
             loss_logger.log(
                 epoch=epoch,
                 iteration=it_global,
-                total_loss=loss.item(),
+                total_loss=total_loss.item(),
                 cls_loss=cls_loss.item(),
                 mim_loss=mim_loss.item(),
                 lr=optimizer.param_groups[0]["lr"],
                 wd=optimizer.param_groups[0]["weight_decay"]
             )
 
-        # logging per 50 iteration
+        # Log to WandB
+        if use_wandb:
+            log_data = {
+                'iter_loss': total_loss.item(),
+                'iter_cls_loss': cls_loss.item(),
+                'iter_mim_loss': mim_loss.item(),
+                'iter_lr': optimizer.param_groups[0]["lr"],
+                'iter_wd': optimizer.param_groups[0]["weight_decay"],
+                'epoch': epoch,
+                'global_step': it_global,
+            }
+            if koleo_weight > 0:
+                log_data['iter_koleo_loss'] = koleo_loss_val.item()
+            wandb.log(log_data)
+
         if it % 50 == 0:
             current_lr = optimizer.param_groups[0]["lr"]
             current_wd = optimizer.param_groups[0]["weight_decay"]
-            print(f"  [Iter {it:4d}] Loss: {loss.item():.4f} (CLS: {cls_loss.item():.4f}, MIM: {mim_loss.item():.4f}) | LR: {current_lr:.8f} | WD: {current_wd:.6f}")
-    
-    # Gather stats from all processes
+            print(f"  [Iter {it:4d}] Loss: {total_loss.item():.4f} "
+                  f"(CLS: {cls_loss.item():.4f}, MIM: {mim_loss.item():.4f}, "
+                  f"KoLeo: {koleo_loss_val.item():.4f}) | "
+                  f"LR: {current_lr:.8f} | WD: {current_wd:.6f}")
+
     metric_logger.synchronize_between_processes()
     print(f"Averaged stats: {metric_logger}")
-    
+
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -302,7 +446,16 @@ def clip_gradients(model, clip):
     return norms
 
 
-def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, 
+def cancel_gradients_last_layer(epoch, student, freeze_last_layer):
+    """Zero gradients on DINO head's last layer for the first freeze_last_layer epochs."""
+    if epoch >= freeze_last_layer:
+        return
+    for n, p in student.named_parameters():
+        if "last_layer" in n:
+            p.grad = None
+
+
+def cosine_scheduler(base_value, final_value, epochs, niter_per_ep,
                      warmup_epochs=0, start_warmup_value=0):
     """Cosine learning rate schedule with warmup."""
     warmup_schedule = np.array([])
@@ -415,30 +568,51 @@ def save_checkpoint(state, filename='checkpoint.pth'):
     print(f"Checkpoint saved to {filename}")
 
 
-def load_checkpoint(checkpoint_path, student, teacher, optimizer, fp16_scaler):
+def load_checkpoint(checkpoint_path, student, teacher, optimizer, fp16_scaler, dino_loss=None):
     """Load checkpoint."""
     print(f"Loading checkpoint from {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-    
+
     student.load_state_dict(checkpoint['student'])
     teacher.load_state_dict(checkpoint['teacher'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     if fp16_scaler is not None and 'fp16_scaler' in checkpoint:
         fp16_scaler.load_state_dict(checkpoint['fp16_scaler'])
-    
+    if dino_loss is not None and 'dino_loss' in checkpoint:
+        dino_loss.load_state_dict(checkpoint['dino_loss'])
+
     return checkpoint['epoch']
 
 
 def main(args):
     # Setup distributed training
     if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        dist.init_process_group(backend='nccl', init_method=args.dist_url,
-                               world_size=args.world_size, rank=args.local_rank)
-        print(f"Distributed training enabled: rank {args.local_rank}/{args.world_size}")
+        # torchrun sets LOCAL_RANK/RANK/WORLD_SIZE as env vars; read them here
+        local_rank = int(os.environ.get("LOCAL_RANK", args.local_rank))
+        rank = int(os.environ.get("RANK", local_rank))
+        world_size = int(os.environ.get("WORLD_SIZE", args.world_size))
+        args.local_rank = local_rank
+        args.world_size = world_size
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(backend='nccl', init_method='env://',
+                               world_size=world_size, rank=rank)
+        print(f"Distributed training enabled: rank {rank}/{world_size} on GPU {local_rank}")
     
     # Create output directory
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Initialize WandB
+    use_wandb = WANDB_AVAILABLE and args.wandb_project and args.local_rank == 0
+    if use_wandb:
+        wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_run_name or None,
+            config=vars(args),
+            dir=args.output_dir,
+        )
+        print(f"WandB initialized: project={args.wandb_project}, run={wandb.run.name}")
+    elif args.wandb_project and not WANDB_AVAILABLE:
+        print("Warning: --wandb_project specified but wandb is not installed.")
 
     # Create loss logger
     loss_logger = None
@@ -457,6 +631,13 @@ def main(args):
         marker_metadata = load_marker_metadata(args.marker_metadata)
     else:
         raise ValueError("Marker metadata file must be provided.")
+    if args.marker_metadata_imc:
+        marker_metadata_imc = load_marker_metadata(args.marker_metadata_imc)
+        overlap = set(marker_metadata.keys()) & set(marker_metadata_imc.keys())
+        if overlap:
+            print(f"Warning: {len(overlap)} overlapping markers in metadata files: {overlap}")
+        marker_metadata = {**marker_metadata, **marker_metadata_imc}
+        print(f"Merged marker metadata: {len(marker_metadata)} markers total")
     
     # Setup data augmentation
     transform = get_augmentation_pipeline(
@@ -470,48 +651,74 @@ def main(args):
     )
     
     # Create dataset
-    if args.dataset_type == 'folder':
-        dataset = MultiplexImageFolderDataset(
-            data_root=args.data_path,
-            transform=transform,
-        )
-    elif args.dataset_type == 'patch':
-        dataset = MultiplexPatchDataset(
-            patch_dir=args.data_path,
-            transform=transform,
-        )
-    else:
-        raise ValueError(f"Unknown dataset type: {args.dataset_type}")
-    
+    def _make_dataset(data_path, recursive=False):
+        if args.dataset_type == 'folder':
+            return MultiplexImageFolderDataset(data_root=data_path, transform=transform)
+        elif args.dataset_type == 'patch':
+            return MultiplexPatchDataset(patch_dir=data_path, transform=transform, recursive=recursive)
+        else:
+            raise ValueError(f"Unknown dataset type: {args.dataset_type}")
+
+    dataset = _make_dataset(args.data_path)
+    n_primary = len(dataset)
+    n_imc = 0
+    if args.data_path_imc:
+        from torch.utils.data import ConcatDataset
+        dataset_imc = _make_dataset(args.data_path_imc, recursive=True)  # IMC has nested subdirs
+        n_imc = len(dataset_imc)
+        print(f"Mixed dataset: primary={n_primary}, imc={n_imc}, total={n_primary + n_imc}")
+        dataset = ConcatDataset([dataset, dataset_imc])
+
     print(f"Dataset size: {len(dataset)}")
-    
+
     # Create dataloader
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        data_loader = DataLoader(
+            dataset,
+            sampler=sampler,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=collate_fn_multicrop,
+        )
+    elif args.data_path_imc:
+        # Balanced: exactly half CODEX, half IMC per batch
+        batch_sampler = BalancedBatchSampler(n_primary, n_imc, args.batch_size)
+        print(f"BalancedBatchSampler: {len(batch_sampler)} batches/epoch "
+              f"({args.batch_size // 2} CODEX + {args.batch_size // 2} IMC per batch)")
+        data_loader = DataLoader(
+            dataset,
+            batch_sampler=batch_sampler,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            collate_fn=collate_fn_multicrop,
+        )
     else:
-        sampler = None
-    
-    data_loader = DataLoader(
-        dataset,
-        sampler=sampler,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=True,
-        collate_fn=collate_fn_multicrop,
-    )
+        data_loader = DataLoader(
+            dataset,
+            shuffle=True,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=collate_fn_multicrop,
+        )
     
     # Create student and teacher models
     print("Creating student model...")
     student_backbone, precision, embed_dim = create_model_from_pretrained(
         checkpoint_path=args.pretrained_weights,
-        cfg={"model_type": args.model_type, "token_overlap": args.token_overlap}
+        cfg={"model_type": args.model_type, "token_overlap": args.token_overlap,
+             "drop_path_rate": args.drop_path_rate}
     )
-    
+
     print("Creating teacher model...")
     teacher_backbone, _, _ = create_model_from_pretrained(
         checkpoint_path=args.pretrained_weights,
-        cfg={"model_type": args.model_type, "token_overlap": args.token_overlap}
+        cfg={"model_type": args.model_type, "token_overlap": args.token_overlap,
+             "drop_path_rate": args.drop_path_rate}
     )
     
     # Create DINO heads
@@ -519,6 +726,7 @@ def main(args):
         in_dim=embed_dim,
         out_dim=args.out_dim,
         use_bn=args.use_bn_in_head,
+        norm_last_layer=args.norm_last_layer,
     )
     teacher_head = DINOHead(
         in_dim=embed_dim,
@@ -552,16 +760,24 @@ def main(args):
     for p in teacher.parameters():
         p.requires_grad = False
     
-    # Wrap with DDP
+    # Wrap with DDP (teacher excluded: no grad, updated via EMA only)
     if args.distributed:
-        student = DDP(student, device_ids=[args.local_rank])
-        teacher = DDP(teacher, device_ids=[args.local_rank])
-        teacher_without_ddp = teacher.module
+        student = DDP(student, device_ids=[args.local_rank], find_unused_parameters=True)
+        teacher_without_ddp = teacher
     else:
         teacher_without_ddp = teacher
     
     print(f"Student and Teacher are ready. Embedding dim: {embed_dim}")
     
+    # Create KoLeo loss (optional)
+    koleo_loss_fn = None
+    if getattr(args, 'koleo_loss_weight', 0.0) > 0:
+        koleo_loss_fn = KoLeoLoss().cuda()
+        print(f"KoLeo loss enabled with weight={args.koleo_loss_weight}")
+    if getattr(args, 'grad_accum_steps', 1) > 1:
+        print(f"Gradient accumulation enabled: {args.grad_accum_steps} steps "
+              f"(effective batch size = {args.batch_size * args.grad_accum_steps})")
+
     # Create DINO loss
     dino_loss = DINOLoss(
         out_dim=args.out_dim,
@@ -594,7 +810,7 @@ def main(args):
         args.min_lr,
         args.epochs, len(data_loader),
         warmup_epochs=args.warmup_epochs,
-        start_warmup_value = 0.004
+        start_warmup_value=0  # warmup 从 0 开始，正确升到 base_lr
     )
     
     # Setup weight decay schedule
@@ -619,7 +835,7 @@ def main(args):
     # Resume from checkpoint if provided
     start_epoch = 0
     if args.resume:
-        start_epoch = load_checkpoint(args.resume, student, teacher, optimizer, fp16_scaler)
+        start_epoch = load_checkpoint(args.resume, student, teacher, optimizer, fp16_scaler, dino_loss)
         start_epoch += 1
     
     print(f"Starting training for {args.epochs} epochs")
@@ -633,12 +849,25 @@ def main(args):
         train_stats = train_one_epoch(
             student, teacher, teacher_without_ddp, dino_loss,
             data_loader, optimizer, lr_schedule, wd_schedule,
-            momentum_schedule, epoch, fp16_scaler, args, loss_logger
+            momentum_schedule, epoch, fp16_scaler, args, loss_logger,
+            use_wandb=use_wandb, koleo_loss_fn=koleo_loss_fn
         )
 
         # Save epoch summary
         if args.local_rank == 0 and loss_logger is not None:
             loss_logger.save_epoch_summary(epoch, train_stats)
+
+        # Log epoch summary to WandB
+        if use_wandb:
+            epoch_log = {
+                'epoch_loss': train_stats.get('loss', 0),
+                'epoch_cls_loss': train_stats.get('cls_loss', 0),
+                'epoch_mim_loss': train_stats.get('mim_loss', 0),
+                'epoch': epoch,
+            }
+            if getattr(args, 'koleo_loss_weight', 0.0) > 0:
+                epoch_log['epoch_koleo_loss'] = train_stats.get('koleo_loss', 0)
+            wandb.log(epoch_log)
 
         # Save checkpoint
         if args.local_rank == 0:
@@ -647,6 +876,7 @@ def main(args):
                     'student': student.state_dict(),
                     'teacher': teacher.state_dict(),
                     'optimizer': optimizer.state_dict(),
+                    'dino_loss': dino_loss.state_dict(),
                     'epoch': epoch,
                     'args': args,
                 }
@@ -664,6 +894,9 @@ def main(args):
     
     total_time = time.time() - start_time
     print(f'Training time: {total_time/3600:.2f} hours')
+
+    if use_wandb:
+        wandb.finish()
 
 
 if __name__ == '__main__':

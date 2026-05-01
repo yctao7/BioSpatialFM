@@ -289,7 +289,9 @@ def extract_patches(input_dir, output_dir):
     patch_extractor = PatchExtractor(patch_size=256, stride=256)
 
     file_path_list = [file_path for file_path in Path(input_dir).rglob("*") if file_path.is_file()]
-    for file_path in tqdm(file_path_list):
+    pbar = tqdm(file_path_list)
+    for file_path in pbar:
+        pbar.set_description(f"Processing {file_path}")
         try:
             tif = tifffile.TiffFile(file_path)
         except:
@@ -314,7 +316,7 @@ def extract_patches(input_dir, output_dir):
         assert C == len(markers)
 
         marker_list, chan_data_list = [], []
-        for i, marker in enumerate(tqdm(markers, leave=False)):
+        for i, marker in enumerate(markers):
             try:
                 chan_data = series.levels[0].asarray(key=i)
                 marker_list.append(marker)
@@ -325,7 +327,7 @@ def extract_patches(input_dir, output_dir):
 
         patches = patch_extractor.extract_patches_from_image(np.stack(chan_data_list, axis=0))
         os.makedirs(output_dir, exist_ok=True)
-        for idx, (patch, (row, col)) in enumerate(tqdm(patches, leave=False)):
+        for idx, (patch, (row, col)) in enumerate(patches):
             if patch.sum() == 0:
                 continue
             with h5py.File(os.path.join(output_dir, f"{file_path.stem}_{row:03d}_{col:03d}.h5"), 'w') as f:
@@ -333,11 +335,106 @@ def extract_patches(input_dir, output_dir):
                     f.create_dataset(marker.upper(), data=patch[i, :, :])
 
 
+def extract_patches_imc(input_dir, output_dir):
+    """
+    Extract patches from IMC data where each ROI directory contains
+    one single-channel TIFF per marker.
+
+    Directory structure expected:
+      input_dir/
+        HPAP-XXX/
+          Imaging mass cytometry/
+            {Region}/
+              {Panel}/
+                ROIYYY/
+                  *_{IsotopeCode}_{MarkerName}.tiff
+    """
+    patch_extractor = PatchExtractor(patch_size=256, stride=256)
+
+    input_path = Path(input_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Find all directories that directly contain .tiff/.ometiff files (ROI-level dirs)
+    roi_dirs = sorted({f.parent for f in input_path.rglob("*.tiff")} |
+                      {f.parent for f in input_path.rglob("*.ometiff")})
+    print(f"Found {len(roi_dirs)} ROI directories")
+
+    for roi_dir in tqdm(roi_dirs, desc="Processing ROIs"):
+        tiff_files = sorted(roi_dir.glob("*.tiff")) + sorted(roi_dir.glob("*.ometiff"))
+        if not tiff_files:
+            continue
+
+        # Load each single-channel TIFF and extract marker from filename
+        marker_list, chan_data_list = [], []
+        seen_markers = set()
+        for tiff_file in tiff_files:
+            # filename: {prefix}_{IsotopeCode}_{MarkerName}.tiff
+            # use "{IsotopeCode}_{MarkerName}" to avoid duplicates (e.g. Ir191_DNA vs Ir193_DNA)
+            parts = tiff_file.stem.split('_')
+            marker = '_'.join(parts[-2:])
+            key = marker.upper()
+            if key in seen_markers:
+                continue  # skip duplicate (e.g. mixed-region files in same dir)
+            try:
+                with tifffile.TiffFile(str(tiff_file)) as tf:
+                    img = tf.pages[0].asarray()  # shape: (H, W), avoids OME series parsing
+                seen_markers.add(key)
+                marker_list.append(marker)
+                chan_data_list.append(img)
+            except Exception as e:
+                print(f"\n[读取失败] {tiff_file.name} | 错误: {e}")
+                continue
+
+        if not chan_data_list:
+            continue
+
+        # If shapes differ, keep only channels matching the majority shape
+        from collections import Counter as _Counter
+        shape_counts = _Counter(arr.shape for arr in chan_data_list)
+        majority_shape = shape_counts.most_common(1)[0][0]
+        if len(shape_counts) > 1:
+            filtered = [(m, a) for m, a in zip(marker_list, chan_data_list) if a.shape == majority_shape]
+            marker_list, chan_data_list = zip(*filtered) if filtered else ([], [])
+            marker_list, chan_data_list = list(marker_list), list(chan_data_list)
+
+        # Stack channels: (C, H, W)
+        image = np.stack(chan_data_list, axis=0)
+
+        # Build a unique prefix from path relative to input_dir
+        rel_parts = roi_dir.relative_to(input_path).parts
+        prefix = "__".join(p.replace(" ", "-") for p in rel_parts)
+
+        # Extract patches
+        patches = patch_extractor.extract_patches_from_image(image)
+
+        # Save each patch as an H5 file (one dataset per marker)
+        roi_output_dir = os.path.join(output_dir, prefix)
+        os.makedirs(roi_output_dir, exist_ok=True)
+
+        saved = 0
+        for patch, (row, col) in patches:
+            if patch.sum() == 0:
+                continue
+            h5_path = os.path.join(roi_output_dir, f"{row:03d}_{col:03d}.h5")
+            with h5py.File(h5_path, 'w') as f:
+                for i, marker in enumerate(marker_list):
+                    f.create_dataset(marker.upper(), data=patch[i, :, :])
+            saved += 1
+
+        tqdm.write(f"  {prefix}: {saved} patches saved")
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="KRONOS 数据预处理：从多通道 TIFF 提取 Patch 并保存为 H5")
-    parser.add_argument('--input_dir', type=str, required=True, 
+    parser.add_argument('--input_dir', type=str, required=True,
                         help='包含原始 TIFF 文件的输入目录路径')
-    parser.add_argument('--output_dir', type=str, required=True, 
+    parser.add_argument('--output_dir', type=str, required=True,
                         help='保存提取出的 .h5 patch 的输出目录路径')
+    parser.add_argument('--modality', type=str, default='codex', choices=['codex', 'imc'],
+                        help='数据模态: codex (多通道单TIFF) 或 imc (每marker一个单通道TIFF)')
     args = parser.parse_args()
-    extract_patches(args.input_dir, args.output_dir)
+
+    if args.modality == 'imc':
+        extract_patches_imc(args.input_dir, args.output_dir)
+    else:
+        extract_patches(args.input_dir, args.output_dir)

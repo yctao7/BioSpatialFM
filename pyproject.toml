@@ -1,38 +1,24 @@
-[tool.poetry]
+[project]
 name = "KRONOS"
 version = "0.1.0"
 description = "Foundation model for multiplex spatial proteomic images"
 readme = "README.md"
+requires-python = ">=3.9"
+
 authors = [
-    "Muhammad Shaban <mshaban@bwh.harvard.edu>",
-    "Faisal Mahmood <faisalmahmood@bwh.harvard.edu>"
+    { name = "Muhammad Shaban", email = "mshaban@bwh.harvard.edu" },
+    { name = "Faisal Mahmood", email = "faisalmahmood@bwh.harvard.edu" }
 ]
-license = "CC-BY-NC-ND-4.0"
-keywords = ["foundation model", "multiplex", "spatial proteomics", "self-supervised", "pytorch", "transformers", "pathology"]
-homepage = "https://github.com/mahmoodlab/KRONOS/"
-repository = "https://github.com/mahmoodlab/KRONOS"
-packages = [{ include = "kronos" }]
+dependencies = [
+    "numpy>=1.26.4",
+    "torch>=2.0.0",
+    "xformers>=0.0.18",
+    "huggingface_hub>=0.28.1",
+    "torchvision>=0.23.0",
+    "wandb>=0.25.1",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.9"
-numpy = ">=1.26.4"
-torch = ">=2.0.0"
-xformers = ">=0.0.18"
-huggingface_hub = ">=0.28.1"
-
-# Optional dependencies for tutorials
-jupyter = { version = "*", optional = true }
-ipywidgets = { version = "*", optional = true }
-pandas = { version = "*", optional = true }
-h5py = { version = "*", optional = true }
-scipy = { version = "*", optional = true }
-tifffile = { version = "*", optional = true }
-matplotlib = { version = "*", optional = true }
-scikit-learn = { version = "*", optional = true }
-scikit-image = { version = "*", optional = true }
-optuna = { version = "*", optional = true }
-
-[tool.poetry.extras]
+[project.optional-dependencies]
 tutorials = [
     "jupyter",
     "ipywidgets",
@@ -43,9 +29,13 @@ tutorials = [
     "matplotlib",
     "scikit-learn",
     "scikit-image",
-    "optuna"
+    "optuna",
 ]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kronos"]

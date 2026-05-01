@@ -94,7 +94,7 @@ def create_model(
         ffn_layer='mlp',
         block_chunks=4,
         num_register_tokens=16,
-        drop_path_rate=0.3,
+        drop_path_rate=config.get("drop_path_rate", 0.3),
     )
     if config["model_type"] in ['vits16', 'vitl16'] and config["token_overlap"]:
         # Adjust stride size if token overlap is enabled

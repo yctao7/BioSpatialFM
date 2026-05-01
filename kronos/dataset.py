@@ -190,25 +190,35 @@ class MultiplexPatchDataset(Dataset):
         patch_dir: str,
         patch_list: Optional[List[str]] = None,
         transform=None,
+        recursive: bool = False,
     ):
         self.patch_dir = patch_dir
         self.transform = transform
-        
+
         if patch_list is not None:
+            # patch_list contains absolute paths
             self.patch_files = patch_list
+        elif recursive:
+            # Walk all subdirectories
+            self.patch_files = []
+            for root, _, files in os.walk(patch_dir):
+                for f in files:
+                    if f.endswith('.h5'):
+                        self.patch_files.append(os.path.join(root, f))
+            self.patch_files.sort()
         else:
             self.patch_files = [
-                f for f in os.listdir(patch_dir)
+                os.path.join(patch_dir, f)
+                for f in os.listdir(patch_dir)
                 if f.endswith('.h5')
             ]
             self.patch_files.sort()
-        
+
     def __len__(self):
         return len(self.patch_files)
-    
+
     def __getitem__(self, idx):
-        patch_file = self.patch_files[idx]
-        patch_path = os.path.join(self.patch_dir, patch_file)
+        patch_path = self.patch_files[idx]
         
         with h5py.File(patch_path, 'r') as f:
             patch = {m: f[m][()] for m in f}

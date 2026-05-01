@@ -1,5 +1,10 @@
-mkdir tutorials/codex_dataset/multiplex_images/
-cp -r /nfs/turbo/umms-drjieliu/proj/HPAP-Spatial/CODEX/hpapdata/HPAP-007 tutorials/codex_dataset/multiplex_images/
-cp -r /nfs/turbo/umms-drjieliu/proj/HPAP-Spatial/CODEX/hpapdata/HPAP-009 tutorials/codex_dataset/multiplex_images/
+# Extract CODEX patches
+python tutorials/utils/patch_extractor.py \
+    --input_dir /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata \
+    --output_dir /scratch/drjieliu_owned_root/drjieliu_owned1/peterszj/patches/codex
 
-python tutorials/utils/patch_extractor.py --input_dir tutorials/codex_dataset/multiplex_images --output_dir tutorials/codex_dataset/patches
+# Extract IMC patches (uncomment if needed)
+# python tutorials/utils/patch_extractor.py \
+#     --input_dir /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/IMC/hpapdata \
+#     --output_dir /scratch/drjieliu_owned_root/drjieliu_owned1/peterszj/patches/imc \
+#     --modality imc

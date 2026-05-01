@@ -366,9 +366,10 @@ class MultiCropWrapper(nn.Module):
         
         start_idx = 0
         cls_outputs = []
+        backbone_cls_global = []  # backbone CLS tokens for global crops (for KoLeo)
         patch_outputs_by_size = {}  # Group by number of patches
         masks_by_size = {}
-        
+
         # Track which resolution index corresponds to global crops
         # Assuming global crops come first and have the largest size
         global_crop_size = sizes[0].item()  # First crop is global
@@ -396,7 +397,11 @@ class MultiCropWrapper(nn.Module):
             
             # Collect CLS token outputs
             cls_outputs.append(backbone_out["x_norm_clstoken"])
-            
+
+            # Collect backbone CLS tokens for global crops (used for KoLeo in student)
+            if is_student and size_val == global_crop_size:
+                backbone_cls_global.append(backbone_out["x_norm_clstoken"])
+
             # Collect patch tokens grouped by number of patches
             if "x_norm_patchtokens" in backbone_out and backbone_out["x_norm_patchtokens"] is not None:
                 patches = backbone_out["x_norm_patchtokens"]
@@ -454,6 +459,10 @@ class MultiCropWrapper(nn.Module):
         ret = {
             "x_norm_clstoken": head_output,
         }
+
+        # Return backbone CLS tokens for global crops (for KoLeo loss in student)
+        if backbone_cls_global:
+            ret["backbone_cls_tokens"] = torch.cat(backbone_cls_global, dim=0)
         
         # Process patch tokens grouped by size
         if patch_outputs_by_size:

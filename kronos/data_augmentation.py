@@ -35,10 +35,19 @@ class MarkerSelection:
 
     def __call__(self, image):
         image_new = {}
+        # Include fixed markers that exist; count how many are missing
+        n_missing_fixed = 0
         for marker in self.fixed_markers:
-            image_new[marker] = image[marker]
-        available_markers = [m for m in image.keys() if m not in self.fixed_markers]
-        selected_markers = random.sample(available_markers, self.n_random_markers)
+            if marker in image:
+                image_new[marker] = image[marker]
+            else:
+                n_missing_fixed += 1
+        # Always return len(fixed_markers) + n_random_markers total channels;
+        # compensate for missing fixed markers with extra random ones
+        n_random = min(self.n_random_markers + n_missing_fixed,
+                       len(image) - len(image_new))
+        available_markers = [m for m in image.keys() if m not in image_new]
+        selected_markers = random.sample(available_markers, n_random)
         for marker in selected_markers:
             image_new[marker] = image[marker]
         return image_new
@@ -59,16 +68,22 @@ class Normalization:
         """
         image_new = np.stack([image[m] for m in image], axis=0)
 
-        image_new = torch.from_numpy(image_new.astype(np.float32) / np.iinfo(image_new.dtype).max)
+        dtype = image_new.dtype
+        max_val = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1.0
+        image_new = torch.from_numpy(image_new.astype(np.float32) / max_val)
 
-        mean = torch.tensor([self.marker_metadata[m]['marker_mean'] for m in image]).view(-1, 1, 1)
-        std = torch.tensor([self.marker_metadata[m]['marker_std'] for m in image]).view(-1, 1, 1)
+        means, stds, marker_ids = [], [], []
+        for m in image:
+            meta = self.marker_metadata.get(m, {})
+            means.append(meta.get('marker_mean', 0.0))
+            stds.append(meta.get('marker_std', 1.0))
+            marker_ids.append(meta.get('marker_id', 0))
+        mean = torch.tensor(means).view(-1, 1, 1)
+        std = torch.tensor(stds).view(-1, 1, 1)
         image_new = (image_new - mean) / (std + 1e-8)
-        
+
         if self.add_noise:
             image_new = image_new + torch.randn_like(image_new) * self.noise_std
-        
-        marker_ids = [self.marker_metadata[m]['marker_id'] for m in image]
             
         return image_new, marker_ids
 

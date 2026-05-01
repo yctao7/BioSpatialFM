@@ -14,3 +14,17 @@ __pycache__/ca_mea.cpython-312.pyc
 archive/
 output/
 *.csv
+downstream/
+wandb/
+pth_files/
+*.log
+tutorials/imc_dataset/
+uv.lock
+.codex
+bin/
+tiff.py
+resolution.txt
+resolution_groups.txt
+resolution_imc.txt
+test.ipynb
+.vscode/
