@@ -114,7 +114,7 @@ def create_model(
         # Raise error for unsupported model type
         raise ValueError(f'Unsupported model type: {config["model_type"]}')
     
-    return model, torch.float32, embedding_dim
+    return model, torch.float16, embedding_dim
 
 
 def create_model_from_pretrained(
