@@ -30,6 +30,21 @@ class RandomRotation90:
 
 
 class MarkerSelection:
+    """
+    Per-sample channel selection for the DINO branch.
+
+    `fixed_markers=['DAPI', 'DNA']` lets each panel find its own nuclear/structural
+    anchor: CODEX panels contain DAPI but no DNA, IMC panels contain DNA but no
+    DAPI. The matching loop picks the FIRST entry that's in the panel, so each
+    panel contributes one anchor (not two), and the missing-fixed compensation
+    keeps the total channel count consistent with the legacy `fixed=['DAPI'],
+    n_random=2` behavior.
+
+    For CODEX: 1 fixed (DAPI) + 1 missing-comp + 1 random  = 3 channels (with anchor)
+    For IMC:   1 fixed (DNA)  + 1 missing-comp + 1 random  = 3 channels (with anchor)
+    Both panels get an anchor. Pre-canonical-name fix (when IMC h5 keys still had
+    isotope prefixes) IMC was getting 0 fixed + 3 random, no structural anchor.
+    """
     def __init__(self, fixed_markers=None, n_random_markers=1):
         if fixed_markers is None:
             fixed_markers = ['DAPI', 'DNA']
@@ -38,15 +53,16 @@ class MarkerSelection:
 
     def __call__(self, image):
         image_new = {}
-        # Include fixed markers that exist; count how many are missing
+        # Include fixed markers that exist; count how many are missing.
         n_missing_fixed = 0
         for marker in self.fixed_markers:
             if marker in image:
                 image_new[marker] = image[marker]
             else:
                 n_missing_fixed += 1
-        # Always return len(fixed_markers) + n_random_markers total channels;
-        # compensate for missing fixed markers with extra random ones
+        # Total = len(fixed_markers) + n_random_markers; missing fixed entries
+        # are compensated with extra random picks, so a 2-entry fixed list still
+        # yields 3 channels even when only 1 entry actually matches.
         n_random = min(self.n_random_markers + n_missing_fixed,
                        len(image) - len(image_new))
         available_markers = [m for m in image.keys() if m not in image_new]
@@ -61,11 +77,11 @@ class Normalization:
         self.marker_metadata = marker_metadata
         self.add_noise = add_noise
         self.noise_std = noise_std
-        
+
     def __call__(self, image):
         """
         Normalize multiplex image.
-        
+
         Args:
             image: {marker_name: tensor} where each tensor is of shape [H, W]
         """
@@ -87,7 +103,7 @@ class Normalization:
 
         if self.add_noise:
             image_new = image_new + torch.randn_like(image_new) * self.noise_std
-            
+
         return image_new, marker_ids
 
 
@@ -210,9 +226,28 @@ class MultiViewDataAugmentation:
 
 
 class MaskConsistencyAugmentation:
+    """
+    Per-sample full-panel view for the channel-masking consistency loss (Lmask).
+
+    Returns ONE normalized tensor with all markers (channels in canonical sorted
+    order so samples sharing a marker panel land in the same panel group at
+    collation time). The DinoMaskCollator does the per-group channel masking at
+    batch level -- matching kronos's forward-time convention that all samples in
+    a (sub-)batch share the same marker_ids tensor.
+
+    A single bilinear resize to `target_size` (default 256) is applied so that
+    samples sharing a marker panel can be stacked at collation time. CODEX / IMC
+    patches are already 256x256, but the islet source (peterszj/islet_patches_h5)
+    has variable per-islet bounding-box sizes (~80 to ~5000), and a same-panel
+    CODEX+islet mix would otherwise fail torch.stack in DinoMaskCollator. Bilinear
+    is mean-preserving and produces no negative values for the non-negative
+    multiplex inputs. No additive Gaussian noise either (would otherwise inject a
+    separate invariance into Lmask).
+    """
     def __init__(self, marker_metadata, target_size: int = 256):
         self.marker_metadata = marker_metadata
         self.target_size = int(target_size)
+        # No additive noise: channel set is the only systematic teacher/student difference.
         self.normalize = Normalization(marker_metadata, add_noise=False)
 
     def __call__(self, image):
@@ -222,7 +257,7 @@ class MaskConsistencyAugmentation:
                 f"Sample has only {len(markers)} marker(s); mask consistency requires >= 2."
             )
         ordered = {m: image[m] for m in markers}
-        tensor, marker_ids = self.normalize(ordered)
+        tensor, marker_ids = self.normalize(ordered)  # tensor: [C, H, W], marker_ids: List[int]
         if tensor.shape[-2] != self.target_size or tensor.shape[-1] != self.target_size:
             tensor = F.interpolate(
                 tensor.unsqueeze(0),
@@ -235,6 +270,16 @@ class MaskConsistencyAugmentation:
 
 
 class CombinedDinoMaskTransform:
+    """
+    Returns BOTH the standard DINO multicrop output AND a single full-panel mask view
+    from one h5 read. Output structure:
+        ((dino_crops, dino_marker_ids), (mask_tensor, mask_marker_ids))
+    The dataset returns this tuple as-is; DinoMaskCollator groups by panel and
+    performs the per-group channel masking that produces teacher/student tensors.
+
+    The mask view is just the raw normalized patch (no spatial augmentation) -- see
+    MaskConsistencyAugmentation for rationale.
+    """
     def __init__(
         self,
         marker_metadata,
@@ -244,6 +289,7 @@ class CombinedDinoMaskTransform:
         global_crops_size=224,
         local_crops_size=96,
     ):
+        # DINO branch: identical to the existing 'dino' pipeline behavior.
         self.dino_pipeline = transforms.Compose([
             MarkerSelection(),
             Normalization(marker_metadata),
@@ -258,6 +304,8 @@ class CombinedDinoMaskTransform:
         self.mask_pipeline = MaskConsistencyAugmentation(marker_metadata)
 
     def __call__(self, image):
+        # MarkerSelection / Normalization in the DINO branch build new dicts/tensors and do
+        # not mutate `image`, so the mask branch can safely consume the same source dict.
         dino_out = self.dino_pipeline(image)
         mask_out = self.mask_pipeline(image)
         return dino_out, mask_out
