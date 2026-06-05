@@ -1,14 +1,16 @@
 kronos/__pycache__/
 tutorials/utils/__pycache__/
 tutorials/chl_maps_dataset/
-tutorials/codex_dataset/
+tutorials/codex_dataset/*
+!tutorials/codex_dataset/dataset/
 tutorials/metadata/
 KRONOS.egg-info/
 model_assets/
 docs/joint_logo_1.ai
-__pycache__/ca_mea.cpython-312.pyc
+__pycache__/
 .vscode/launch.json
 .claudeignore
+.claude
 .venv
 .venv_gl
 archive/
@@ -18,7 +20,8 @@ downstream/
 wandb/
 pth_files/
 *.log
-tutorials/imc_dataset/
+tutorials/imc_dataset/*
+!tutorials/imc_dataset/dataset/
 uv.lock
 .codex
 bin/
@@ -28,3 +31,13 @@ resolution_groups.txt
 resolution_imc.txt
 test.ipynb
 .vscode/
+
+imc_preprocess/
+imc_annotation/
+*.pkl
+legacy/
+random.ipynb
+
+# re-include dataset marker CSVs (must come AFTER *.csv to win)
+!tutorials/codex_dataset/dataset/*.csv
+!tutorials/imc_dataset/dataset/*.csv

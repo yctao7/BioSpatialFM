@@ -341,21 +341,68 @@ class MultiCropWrapper(nn.Module):
             )
         return self._mask_generators[key]
 
-    def forward(self, x, marker_ids=None, is_student=True):
+    def _forward_mask_branch(self, x_list, marker_ids_list):
+        """
+        Single-forward path for the channel-mask consistency loss (Lmask).
+
+        Each entry of x_list is a `[Bg, Cg, H, W]` tensor for one panel group; entries can
+        have different num_marker (Cg) but must share the same H, W. The matching entry of
+        marker_ids_list is a single 1D tensor of length Cg, broadcast across all Bg samples
+        in that group (matching kronos's per-(sub-)batch marker_ids broadcast convention).
+
+        Routes to backbone.forward_features_list, which packs all groups into ONE
+        attention call via xFormers BlockDiagonalMask -- equivalent to padding +
+        key-padding mask but with zero compute waste on padding positions, and (because
+        it is one wrapped forward call) DDP-safe regardless of how the panel mix differs
+        across ranks.
+
+        Returns dict:
+            - x_norm_clstoken: head-projected CLS tokens, [sum_g Bg, head_out_dim]
+            - group_sizes: list of Bg per group (so callers can split outputs)
+        """
+        # apply_masks (called inside prepare_tokens_with_masks) iterates the masks list
+        # and runs one gather per element, so marker_ids per group must be a List[Tensor]
+        # of length Bg with each element being the group's shared 1D marker_ids tensor.
+        expanded_marker_ids = [[mids] * x.shape[0] for x, mids in zip(x_list, marker_ids_list)]
+        masks_list = [None] * len(x_list)
+        backbone_out_list = self.backbone.forward_features_list(
+            x_list, masks_list=masks_list, marker_ids_list=expanded_marker_ids,
+        )
+        cls_concat = torch.cat([o["x_norm_clstoken"] for o in backbone_out_list], dim=0)
+        head_out = self.head(cls_concat)
+        return {
+            "x_norm_clstoken": head_out,
+            # Pre-head backbone CLS, exposed so callers can apply KoLeo regularization
+            # to the mask-branch representation (mirroring how DINO's main loop
+            # collects backbone_cls_tokens for student global crops).
+            "backbone_cls_tokens": cls_concat,
+            "group_sizes": [o["x_norm_clstoken"].shape[0] for o in backbone_out_list],
+        }
+
+    def forward(self, x, marker_ids=None, is_student=True, mask_branch=False):
         """
         Forward pass with optional masking for MIM.
-        
+
         Args:
             x: List of input tensors at different resolutions
             marker_ids: Optional marker IDs for each crop
             is_student: If True and training, generate masks for MIM
-            
+            mask_branch: If True, route x and marker_ids through the channel-mask
+                consistency path (`_forward_mask_branch`) instead of the standard
+                multi-resolution DINO path. x must be a list of [Bg, Cg, H, W] tensors
+                (one per panel group) all sharing the same H, W; marker_ids a list of
+                1D tensors of length Cg. Dispatching via this flag keeps the call inside
+                DDP's wrapped forward, so gradient bucket sync remains correct.
+
         Returns:
             Dict containing:
                 - x_norm_clstoken: CLS token outputs through head
                 - x_norm_patchtokens: Dict of patch tokens grouped by num_patches
                 - masks: Dict of masks grouped by num_patches (only if is_student=True)
         """
+        if mask_branch:
+            return self._forward_mask_branch(x, marker_ids)
+
         # Convert to list if not already
         if not isinstance(x, list):
             x = [x]
@@ -382,13 +429,14 @@ class MultiCropWrapper(nn.Module):
             _out = torch.cat(x[start_idx:end_idx])
             batch_size_total = _out.shape[0]
             
-            # Get marker_ids for this batch
+            # Get marker_ids for this batch.
+            # collate_fn_multicrop emits marker_ids as List[List[Tensor]] of shape
+            # [num_crops][B], so marker_ids[i] is already a list of B per-sample 1D
+            # tensors -- extend directly to preserve per-sample marker selection.
             if marker_ids is not None:
-                batch_size = x[start_idx].shape[0]
                 _marker_ids = []
                 for i in range(start_idx, end_idx):
-                    # Each crop has batch_size samples
-                    _marker_ids.extend([marker_ids[i]] * batch_size)
+                    _marker_ids.extend(marker_ids[i])
             else:
                 _marker_ids = None
             

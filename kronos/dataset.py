@@ -2,7 +2,9 @@
 Dataset classes for loading multiplex images for KRONOS fine-tuning.
 """
 
+import math
 import os
+import random
 import torch
 import numpy as np
 import tifffile
@@ -219,16 +221,17 @@ class MultiplexPatchDataset(Dataset):
 
     def __getitem__(self, idx):
         patch_path = self.patch_files[idx]
-        
+
         with h5py.File(patch_path, 'r') as f:
             patch = {m: f[m][()] for m in f}
-        
-        # Apply augmentation
-        if self.transform is not None:
-            crops, marker_ids = self.transform(patch)
-            return crops, marker_ids
-        else:
+
+        if self.transform is None:
             raise ValueError("Transform must be provided for patch dataset.")
+        # Pass through whatever the transform produces; the matching collate_fn handles it.
+        # For the standard 'dino' pipeline this is the (crops, marker_ids) tuple expected by
+        # collate_fn_multicrop. For 'dino+mask' it is (dino_out, mask_out) consumed by
+        # DinoMaskCollator.
+        return self.transform(patch)
 
 
 def load_marker_metadata(metadata_path: str) -> Tuple[List[str], np.ndarray, np.ndarray]:
@@ -265,23 +268,126 @@ def collate_fn_multicrop(batch):
         # Multi-crop case
         num_crops = len(all_crops[0])
         crops_list = []
-        
+
         for crop_idx in range(num_crops):
             # Stack all samples for this crop
             crop_batch = torch.stack([crops[crop_idx] for crops in all_crops])
             crops_list.append(crop_batch)
-        
-        # Replicate marker_ids for each crop
-        marker_ids_list = []
-        for marker_ids in all_marker_ids:
-            marker_ids_tensor = torch.tensor(marker_ids)
-            # Repeat for each crop
-            for _ in range(num_crops):
-                marker_ids_list.append(marker_ids_tensor)
-        
+
+        # marker_ids_list shape: [num_crops][B], crop-major. Each inner list has one
+        # 1D marker_ids tensor per sample so MultiCropWrapper.forward can hand the
+        # *per-sample* tensors straight to apply_masks instead of broadcasting one
+        # sample's tensor across the whole sub-batch.
+        sample_marker_tensors = [torch.tensor(ids) for ids in all_marker_ids]
+        marker_ids_list = [list(sample_marker_tensors) for _ in range(num_crops)]
+
         return crops_list, marker_ids_list
     else:
         # Single image case
         crops_batch = torch.stack(all_crops)
         marker_ids_list = [torch.tensor(ids) for ids in all_marker_ids]
         return crops_batch, marker_ids_list
+
+
+class DinoMaskCollator:
+    """
+    Collate function for the combined DINO + channel-mask consistency pipeline.
+
+    Each batch element is `(dino_out, mask_out)` where:
+      - dino_out  = (crops_list, marker_ids) -- standard DINO multicrop output
+      - mask_out  = (full_tensor[C, H, W], marker_ids[C])  -- canonical (sorted) order
+
+    Variable-C handling:
+      - Samples are GROUPED by their marker panel (keyed on the canonical marker_ids
+        tuple). All samples in a group have identical marker order, so we can stack
+        them into [Bg, C, H, W] and use a single shared marker_ids tensor for the
+        whole group -- matching MultiCropWrapper's per-(sub-)batch broadcast convention.
+
+    K student views per teacher view (K = `n_student_views`):
+      - For each panel group, K independent student views are produced by sampling
+        K independent keep-fractions s_k ~ U[keep_min, keep_max] and K independent
+        random channel subsets of size floor(s_k * C). All K views match the same
+        single teacher full-panel view (K-to-1 pairing per sample).
+      - This gives the mask-CE loss K times more gradient signal per sample with
+        no extra teacher cost (teacher forward is single, no_grad).
+      - Naming mirrors DINO's `local_crops_scale=(0.05, 0.4)` which expresses a
+        fraction-to-keep range. So `keep_min/max` are the channel analog: at
+        keep=0.05 only 5% of channels survive, at 0.4 forty percent do.
+
+    Forced-keep markers + minimum kept channels:
+      - `always_keep_marker_ids` (e.g. DAPI for CODEX, DNA for IMC) lists markers
+        that MUST appear in every student view. The teacher view is always the
+        full panel (unaffected). Names absent from a panel are silently ignored.
+      - `min_kept_channels` is a floor on the student view size (default 3 to
+        match the DINO branch's 3-channel input). It prevents degenerate K_s=1
+        or K_s=2 when keep_min is small (e.g. 0.05) and panel size is moderate.
+    """
+    def __init__(self, keep_min: float = 0.05, keep_max: float = 0.4,
+                 always_keep_marker_ids=None, n_student_views: int = 2,
+                 min_kept_channels: int = 3):
+        assert 0.0 < keep_min <= keep_max < 1.0
+        assert n_student_views >= 1
+        assert min_kept_channels >= 1
+        self.keep_min = keep_min
+        self.keep_max = keep_max
+        self.always_keep_marker_ids = set(always_keep_marker_ids) if always_keep_marker_ids else set()
+        self.n_student_views = int(n_student_views)
+        self.min_kept_channels = int(min_kept_channels)
+
+    def _build_student_view(self, teacher_imgs, full_ids, key, forced_keep_idx, free_idx, C):
+        """One sampling + slicing of a student view from the teacher tensor."""
+        keep = random.uniform(self.keep_min, self.keep_max)
+        K_s_target = int(math.floor(keep * C))
+        # Floors: at least min_kept_channels, at least len(forced_keep_idx);
+        # cap: strictly less than C so the student is never identical to teacher.
+        K_s = max(self.min_kept_channels, len(forced_keep_idx),
+                  min(K_s_target, C - 1))
+        n_free = K_s - len(forced_keep_idx)
+        free_pick = random.sample(free_idx, n_free) if n_free > 0 else []
+        student_idx = sorted(set(forced_keep_idx) | set(free_pick))
+        idx_t = torch.tensor(student_idx, dtype=torch.long)
+        student_imgs = teacher_imgs.index_select(1, idx_t)            # [Bg, K_s, H, W]
+        student_ids = full_ids.index_select(0, idx_t)                 # [K_s]
+        return student_imgs, student_ids, K_s, keep
+
+    def __call__(self, batch):
+        dino_part = [s[0] for s in batch]
+        mask_part = [s[1] for s in batch]
+
+        dino_crops, dino_marker_ids = collate_fn_multicrop(dino_part)
+
+        by_panel = {}
+        for tensor, ids in mask_part:
+            key = tuple(ids)
+            by_panel.setdefault(key, []).append(tensor)
+
+        mask_groups = []
+        for key in sorted(by_panel.keys()):
+            tensors = by_panel[key]
+            teacher_imgs = torch.stack(tensors)                       # [Bg, C, H, W]
+            C = teacher_imgs.shape[1]
+            full_ids = torch.tensor(list(key), dtype=torch.long)      # [C]
+
+            forced_keep_idx = sorted(i for i, mid in enumerate(key)
+                                     if mid in self.always_keep_marker_ids)
+            free_idx = [i for i in range(C) if i not in forced_keep_idx]
+
+            student_views = []  # list of K dicts: {'imgs', 'ids', 'K_s', 'keep'}
+            for _ in range(self.n_student_views):
+                s_imgs, s_ids, K_s, keep_k = self._build_student_view(
+                    teacher_imgs, full_ids, key, forced_keep_idx, free_idx, C
+                )
+                student_views.append({'imgs': s_imgs, 'ids': s_ids, 'K_s': K_s, 'keep': keep_k})
+
+            mask_groups.append({
+                'teacher_imgs': teacher_imgs,
+                'teacher_ids': full_ids,
+                'student_views': student_views,
+                'C': C,
+            })
+
+        return {
+            'dino_crops': dino_crops,
+            'dino_marker_ids': dino_marker_ids,
+            'mask_groups': mask_groups,
+        }
