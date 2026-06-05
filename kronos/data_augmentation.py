@@ -5,6 +5,7 @@
 
 from typing import List, Optional
 import torch
+import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 import torchvision.transforms as transforms
@@ -29,8 +30,10 @@ class RandomRotation90:
 
 
 class MarkerSelection:
-    def __init__(self, fixed_markers=['DAPI'], n_random_markers=2):
-        self.fixed_markers = fixed_markers
+    def __init__(self, fixed_markers=None, n_random_markers=1):
+        if fixed_markers is None:
+            fixed_markers = ['DAPI', 'DNA']
+        self.fixed_markers = list(fixed_markers)
         self.n_random_markers = n_random_markers
 
     def __call__(self, image):
@@ -206,6 +209,60 @@ class MultiViewDataAugmentation:
         return [view1, view2]
 
 
+class MaskConsistencyAugmentation:
+    def __init__(self, marker_metadata, target_size: int = 256):
+        self.marker_metadata = marker_metadata
+        self.target_size = int(target_size)
+        self.normalize = Normalization(marker_metadata, add_noise=False)
+
+    def __call__(self, image):
+        markers = sorted(image.keys())
+        if len(markers) < 2:
+            raise ValueError(
+                f"Sample has only {len(markers)} marker(s); mask consistency requires >= 2."
+            )
+        ordered = {m: image[m] for m in markers}
+        tensor, marker_ids = self.normalize(ordered)
+        if tensor.shape[-2] != self.target_size or tensor.shape[-1] != self.target_size:
+            tensor = F.interpolate(
+                tensor.unsqueeze(0),
+                size=(self.target_size, self.target_size),
+                mode='bilinear',
+                align_corners=False,
+                antialias=True,
+            ).squeeze(0)
+        return tensor, marker_ids
+
+
+class CombinedDinoMaskTransform:
+    def __init__(
+        self,
+        marker_metadata,
+        global_crops_scale=(0.4, 1.0),
+        local_crops_scale=(0.05, 0.4),
+        local_crops_number=8,
+        global_crops_size=224,
+        local_crops_size=96,
+    ):
+        self.dino_pipeline = transforms.Compose([
+            MarkerSelection(),
+            Normalization(marker_metadata),
+            ApplyToImageOnly(DataAugmentationDINO(
+                global_crops_scale=global_crops_scale,
+                local_crops_scale=local_crops_scale,
+                local_crops_number=local_crops_number,
+                global_crops_size=global_crops_size,
+                local_crops_size=local_crops_size,
+            )),
+        ])
+        self.mask_pipeline = MaskConsistencyAugmentation(marker_metadata)
+
+    def __call__(self, image):
+        dino_out = self.dino_pipeline(image)
+        mask_out = self.mask_pipeline(image)
+        return dino_out, mask_out
+
+
 def get_augmentation_pipeline(
     marker_metadata,
     augmentation_type='dino',
@@ -245,6 +302,15 @@ def get_augmentation_pipeline(
         return MultiViewDataAugmentation(
             crop_size=global_crops_size,
             scale=global_crops_scale,
+        )
+    elif augmentation_type == 'dino+mask':
+        return CombinedDinoMaskTransform(
+            marker_metadata,
+            global_crops_scale=global_crops_scale,
+            local_crops_scale=local_crops_scale,
+            local_crops_number=local_crops_number,
+            global_crops_size=global_crops_size,
+            local_crops_size=local_crops_size,
         )
     else:
         raise ValueError(f"Unknown augmentation type: {augmentation_type}")

@@ -2,7 +2,9 @@
 Dataset classes for loading multiplex images for KRONOS fine-tuning.
 """
 
+import math
 import os
+import random
 import torch
 import numpy as np
 import tifffile
@@ -223,12 +225,9 @@ class MultiplexPatchDataset(Dataset):
         with h5py.File(patch_path, 'r') as f:
             patch = {m: f[m][()] for m in f}
         
-        # Apply augmentation
-        if self.transform is not None:
-            crops, marker_ids = self.transform(patch)
-            return crops, marker_ids
-        else:
+        if self.transform is None:
             raise ValueError("Transform must be provided for patch dataset.")
+        return self.transform(patch)
 
 
 def load_marker_metadata(metadata_path: str) -> Tuple[List[str], np.ndarray, np.ndarray]:
@@ -271,17 +270,81 @@ def collate_fn_multicrop(batch):
             crop_batch = torch.stack([crops[crop_idx] for crops in all_crops])
             crops_list.append(crop_batch)
         
-        # Replicate marker_ids for each crop
-        marker_ids_list = []
-        for marker_ids in all_marker_ids:
-            marker_ids_tensor = torch.tensor(marker_ids)
-            # Repeat for each crop
-            for _ in range(num_crops):
-                marker_ids_list.append(marker_ids_tensor)
-        
+        sample_marker_tensors = [torch.tensor(ids) for ids in all_marker_ids]
+        marker_ids_list = [list(sample_marker_tensors) for _ in range(num_crops)]
+
         return crops_list, marker_ids_list
     else:
         # Single image case
         crops_batch = torch.stack(all_crops)
         marker_ids_list = [torch.tensor(ids) for ids in all_marker_ids]
         return crops_batch, marker_ids_list
+
+
+class DinoMaskCollator:
+    def __init__(self, keep_min: float = 0.05, keep_max: float = 0.4,
+                 always_keep_marker_ids=None, n_student_views: int = 2,
+                 min_kept_channels: int = 3):
+        assert 0.0 < keep_min <= keep_max < 1.0
+        assert n_student_views >= 1
+        assert min_kept_channels >= 1
+        self.keep_min = keep_min
+        self.keep_max = keep_max
+        self.always_keep_marker_ids = set(always_keep_marker_ids) if always_keep_marker_ids else set()
+        self.n_student_views = int(n_student_views)
+        self.min_kept_channels = int(min_kept_channels)
+
+    def _build_student_view(self, teacher_imgs, full_ids, key, forced_keep_idx, free_idx, C):
+        keep = random.uniform(self.keep_min, self.keep_max)
+        K_s_target = int(math.floor(keep * C))
+        K_s = max(self.min_kept_channels, len(forced_keep_idx),
+                  min(K_s_target, C - 1))
+        n_free = K_s - len(forced_keep_idx)
+        free_pick = random.sample(free_idx, n_free) if n_free > 0 else []
+        student_idx = sorted(set(forced_keep_idx) | set(free_pick))
+        idx_t = torch.tensor(student_idx, dtype=torch.long)
+        student_imgs = teacher_imgs.index_select(1, idx_t)
+        student_ids = full_ids.index_select(0, idx_t)
+        return student_imgs, student_ids, K_s, keep
+
+    def __call__(self, batch):
+        dino_part = [s[0] for s in batch]
+        mask_part = [s[1] for s in batch]
+
+        dino_crops, dino_marker_ids = collate_fn_multicrop(dino_part)
+
+        by_panel = {}
+        for tensor, ids in mask_part:
+            key = tuple(ids)
+            by_panel.setdefault(key, []).append(tensor)
+
+        mask_groups = []
+        for key in sorted(by_panel.keys()):
+            tensors = by_panel[key]
+            teacher_imgs = torch.stack(tensors)
+            C = teacher_imgs.shape[1]
+            full_ids = torch.tensor(list(key), dtype=torch.long)
+
+            forced_keep_idx = sorted(i for i, mid in enumerate(key)
+                                     if mid in self.always_keep_marker_ids)
+            free_idx = [i for i in range(C) if i not in forced_keep_idx]
+
+            student_views = []
+            for _ in range(self.n_student_views):
+                s_imgs, s_ids, K_s, keep_k = self._build_student_view(
+                    teacher_imgs, full_ids, key, forced_keep_idx, free_idx, C
+                )
+                student_views.append({'imgs': s_imgs, 'ids': s_ids, 'K_s': K_s, 'keep': keep_k})
+
+            mask_groups.append({
+                'teacher_imgs': teacher_imgs,
+                'teacher_ids': full_ids,
+                'student_views': student_views,
+                'C': C,
+            })
+
+        return {
+            'dino_crops': dino_crops,
+            'dino_marker_ids': dino_marker_ids,
+            'mask_groups': mask_groups,
+        }

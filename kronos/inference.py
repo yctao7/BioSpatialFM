@@ -174,10 +174,11 @@ def create_model_from_pretrained(
         )
 
     # Load the state dictionary, removing specific prefixes and entries
-    state_dict = torch.load(checkpoint_path, map_location='cpu')
+    state_dict = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     state_dict = state_dict['teacher']
     state_dict = {k.replace('backbone.', ''): v for k, v in state_dict.items()}
-    state_dict = {k: v for k, v in state_dict.items() if 'dino_head' not in k}
+    state_dict = {k: v for k, v in state_dict.items()
+                  if 'dino_head' not in k and not k.startswith('head.')}
 
     # Load the model state
     model.load_state_dict(state_dict, strict=True)

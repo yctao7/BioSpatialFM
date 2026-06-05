@@ -341,21 +341,39 @@ class MultiCropWrapper(nn.Module):
             )
         return self._mask_generators[key]
 
-    def forward(self, x, marker_ids=None, is_student=True):
+    def _forward_mask_branch(self, x_list, marker_ids_list):
+        expanded_marker_ids = [[mids] * x.shape[0] for x, mids in zip(x_list, marker_ids_list)]
+        masks_list = [None] * len(x_list)
+        backbone_out_list = self.backbone.forward_features_list(
+            x_list, masks_list=masks_list, marker_ids_list=expanded_marker_ids,
+        )
+        cls_concat = torch.cat([o["x_norm_clstoken"] for o in backbone_out_list], dim=0)
+        head_out = self.head(cls_concat)
+        return {
+            "x_norm_clstoken": head_out,
+            "backbone_cls_tokens": cls_concat,
+            "group_sizes": [o["x_norm_clstoken"].shape[0] for o in backbone_out_list],
+        }
+
+    def forward(self, x, marker_ids=None, is_student=True, mask_branch=False):
         """
         Forward pass with optional masking for MIM.
-        
+
         Args:
             x: List of input tensors at different resolutions
             marker_ids: Optional marker IDs for each crop
             is_student: If True and training, generate masks for MIM
-            
+            mask_branch: If True, route through channel-mask consistency path.
+
         Returns:
             Dict containing:
                 - x_norm_clstoken: CLS token outputs through head
                 - x_norm_patchtokens: Dict of patch tokens grouped by num_patches
                 - masks: Dict of masks grouped by num_patches (only if is_student=True)
         """
+        if mask_branch:
+            return self._forward_mask_branch(x, marker_ids)
+
         # Convert to list if not already
         if not isinstance(x, list):
             x = [x]
@@ -384,11 +402,9 @@ class MultiCropWrapper(nn.Module):
             
             # Get marker_ids for this batch
             if marker_ids is not None:
-                batch_size = x[start_idx].shape[0]
                 _marker_ids = []
                 for i in range(start_idx, end_idx):
-                    # Each crop has batch_size samples
-                    _marker_ids.extend([marker_ids[i]] * batch_size)
+                    _marker_ids.extend(marker_ids[i])
             else:
                 _marker_ids = None
             
