@@ -1,0 +1,410 @@
+fallback_microns_per_pixel: null
+islet_metadata_csv: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/export_metadata/islets.csv
+output_dir: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/downstream/islet/test_new_model/output/all_patches_islet_csv_filtered
+patients:
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-007/CODEX
+    Staining/HPAP-007_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP007-T2D-65y-4y-F-T_3_1_1-OCT.qptiff - resolution #1'
+  label: T2D
+  patient_id: HPAP-007
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-009/CODEX
+    Staining/HPAP-009_CODEX_Head-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP009-AAB-3y-M-H_1_1_1-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-009
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-011/CODEX
+    Staining/HPAP-011_CODEX_Body-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP011-ND-3y-M-B_2_2-OCT.qptiff - resolution #1'
+  label: ND
+  patient_id: HPAP-011
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-013/CODEX
+    Staining/HPAP-013_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP013-T2D-28y-5y-F-T_3_1_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-013
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-018/CODEX
+    Staining/HPAP-018_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP018-ND-31y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: ND
+  patient_id: HPAP-018
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-015/CODEX
+    Staining/HPAP-015_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP015-T1D-29y-7y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-015
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-016/CODEX
+    Staining/HPAP-016_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP016-AAB-30y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-016
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-017/CODEX
+    Staining/HPAP-017_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP017-AAB-30y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-017
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-024/CODEX
+    Staining/HPAP-024_CODEX_Head-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP024-AAB-18y-M-H_1_2_2-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-024
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-030/CODEX
+    Staining/HPAP-030_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP030-T1D-18y-5y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-030
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-023/CODEX
+    Staining/HPAP-023_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP023-T1D-17y-7y-F-T_3_2_2-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-023
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-027/CODEX
+    Staining/HPAP-027_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP027-ND-31y-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-027
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-038/CODEX
+    Staining/HPAP-038_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP038-AAB-13y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-038
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-037/CODEX
+    Staining/HPAP-037_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP037-ND-35y-NA-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-037
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-040/CODEX
+    Staining/HPAP-040_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP040-ND-35y-M-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-040
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-044/CODEX
+    Staining/HPAP-044_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP044-ND-3y-F-T_3_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-044
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-045/CODEX
+    Staining/HPAP-045_CODEX_Head-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP045-AAB-27y-F-H_1_1_2-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-045
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-046/CODEX
+    Staining/HPAP-046_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: 'HPAP046-ND-19y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: ND
+  patient_id: HPAP-046
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-048/CODEX
+    Staining/HPAP-048_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP048-T1D-27y-10y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-048
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-055/CODEX
+    Staining/HPAP-055_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP055-T1D-24y-7y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-055
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-047/CODEX
+    Staining/HPAP-047_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP047-ND-8y-M-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-047
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-053/CODEX
+    Staining/HPAP-053_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP053-ND-58y-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-053
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-059/CODEX
+    Staining/HPAP-059_CODEX_Head-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP059-ND-H-1-2-1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-059
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-075/CODEX
+    Staining/HPAP-075_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP075-ND-T-3-2-1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-075
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-042/CODEX
+    Staining/HPAP-042_CODEX_Head-of-pancreas_OCT.ome.tif
+  islet_image_name: HPAP042-ND-T-3-2-1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-042
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-058/CODEX
+    Staining/HPAP-058_CODEX_Body-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP058-T2D-34y-1y-F-B1A-OCT.qptiff - resolution #1'
+  label: T2D
+  patient_id: HPAP-058
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-056/CODEX
+    Staining/HPAP-056_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP056-ND-33y-M-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-056
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-062/CODEX
+    Staining/HPAP-062_CODEX_Body-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP062-T2D-56y-4y-M-B1A-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-062
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-066/CODEX
+    Staining/HPAP-066_CODEX_Head-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP066-ND-58y-F-H_1_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-066
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-065/CODEX
+    Staining/HPAP-065_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: 'HPAP065-T2D-40y-3y-M-T1B-OCT.qptiff - resolution #1'
+  label: T2D
+  patient_id: HPAP-065
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-067/CODEX
+    Staining/HPAP-067_CODEX_Body-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP067-ND-26y-M-B_2_2_1-OCT.qptiff - resolution #1'
+  label: ND
+  patient_id: HPAP-067
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-060/CODEX
+    Staining/HPAP-060_CODEX_Body-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP060-AAB-30y-M-B_2_1_3-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-060
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-064/CODEX
+    Staining/HPAP-064_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP064-T1D-24y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-064
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-071/CODEX
+    Staining/HPAP-071_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP071-T1D-12y-F-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-071
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-073/CODEX
+    Staining/HPAP-073_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP073-T1D-24y-6y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-073
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-080/CODEX
+    Staining/HPAP-080_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: 'HPAP080-ND-22y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: ND
+  patient_id: HPAP-080
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-077/CODEX
+    Staining/HPAP-077_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP077-ND-47y-M-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-077
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-081/CODEX
+    Staining/HPAP-081_CODEX_Head-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP081-T2D-45y-20y-F-H_1_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-081
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-070/CODEX
+    Staining/HPAP-070_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP070-T2D-55y-15y-M-T_3_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-070
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-074/CODEX
+    Staining/HPAP-074_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP074-ND-40y-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-074
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-076/CODEX
+    Staining/HPAP-076_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP076-T2D-46y-2y-F-T_3_1_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-076
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-088/CODEX
+    Staining/HPAP-088_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP088-T2D-37y-0.1y-M-T_3_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-088
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-083/CODEX
+    Staining/HPAP-083_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP083-T2D-45y-2y-M-T_3_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-083
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-087/CODEX
+    Staining/HPAP-087_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP087-T1D-15y-6y-F-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-087
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-084/CODEX
+    Staining/HPAP-084_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP084-T1D-12y-F-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-084
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-085/CODEX
+    Staining/HPAP-085_CODEX_Body-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP085-T2D-48y-6y-F-B_2_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-085
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-093/CODEX
+    Staining/HPAP-093_CODEX_Body-of-pancreas_OCT.ome.tif
+  islet_image_name: HPAP093-ND-H-1-2-1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-093
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-094/CODEX
+    Staining/HPAP-094_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP094-ATDM-38y-20y-F-T_3_2_1-OCT.ome.tiff
+  label: UNK
+  patient_id: HPAP-094
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-095/CODEX
+    Staining/HPAP-095_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP095-ND-23y-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-095
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-096/CODEX
+    Staining/HPAP-096_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP096-T2D-56y-1y-F-T_3_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-096
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-091/CODEX
+    Staining/HPAP-091_CODEX_Body-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP091-T2D-50y-0.3y-F-B_2_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-091
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-089/CODEX
+    Staining/HPAP-089_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP089-T1D-27y-8y-F-T_3_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-089
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-090/CODEX
+    Staining/HPAP-090_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: 'HPAP-090-T2D-T-3-2-1-OCT_Scan1.qptiff - resolution #1'
+  label: T2D
+  patient_id: HPAP-090
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-104/CODEX
+    Staining/HPAP-104_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP104-ND-4y-M-T_3_2_1-OCT.qptiff - resolution #1'
+  label: ND
+  patient_id: HPAP-104
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-107/CODEX
+    Staining/HPAP-107_CODEX_Body-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP107-AAB-15y-M-B_2_2_1-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-107
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-102/CODEX
+    Staining/HPAP-102_CODEX_Body-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP102-T1D-18y-6y-M-B_2_2_1-OCT.qptiff - resolution #1'
+  label: T1D
+  patient_id: HPAP-102
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-103/CODEX
+    Staining/HPAP-103_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP103-ND-48y-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-103
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-106/CODEX
+    Staining/HPAP-106_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP106-T2D-55y-3y-M-T_3_4-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-106
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-101/CODEX
+    Staining/HPAP-101_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP101-ND-55y-NA-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-101
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-108/CODEX
+    Staining/HPAP-108_CODEX_Head-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP108-T2D-42y-NA-M-H_1_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-108
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-115/CODEX
+    Staining/HPAP-115_CODEX_Body-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP115-T2D-46y-5y-M-B_2_2_1-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-115
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-117/CODEX
+    Staining/HPAP-117_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP117-ND-64y-M-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-117
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-112/CODEX
+    Staining/HPAP-112_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP112-ND-53y-F-T_3_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-112
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-114/CODEX
+    Staining/HPAP-114_CODEX_Tail-of-pancreas_OCT.qptiff
+  islet_image_name: 'HPAP114-AAB-21y-F-T_3_2_1-OCT.qptiff - resolution #1'
+  label: AAB
+  patient_id: HPAP-114
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-126/CODEX
+    Staining/HPAP-126_CODEX_Body-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP126-T2D-50y-0.08y-F-B_2_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-126
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-128/CODEX
+    Staining/HPAP-128_CODEX_Body-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP128-ND-49y-NA-M-B_2_2-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-128
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-133/CODEX
+    Staining/HPAP-133_CODEX_Body-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP133-T2D-49y-NA-F-B_2_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-133
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-146/CODEX
+    Staining/HPAP-146_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP146-ND-27y-NA-M-T_3_2-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-146
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-147/CODEX
+    Staining/HPAP-147_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP147-T2D-56y-0.42y-F-T_3_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-147
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-148/CODEX
+    Staining/HPAP-148_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP148-ND-7y-M-T_3_2-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-148
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-150/CODEX
+    Staining/HPAP-150_CODEX_Body-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP150-T1D-11y-2.5y-M-B_2_2-OCT.ome.tiff
+  label: T1D
+  patient_id: HPAP-150
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-151/CODEX
+    Staining/HPAP-151_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP151-T1D-31y-3.5y-M-T_3_2-OCT-2.ome.tiff
+  label: T1D
+  patient_id: HPAP-151
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-152/CODEX
+    Staining/HPAP-152_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP152-T1D-50y-4y-F-T_3_2-OCT.ome.tiff
+  label: T1D
+  patient_id: HPAP-152
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-153/CODEX
+    Staining/HPAP-153_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP153-T2D-27y-NA-M-T_3_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-153
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-153/CODEX
+    Staining/HPAP-153_CODEX_Tail-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP153-T2D-54y-NA-F-T_3_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-153-img2
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-159/CODEX
+    Staining/HPAP-159_CODEX_Body-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP159-ND-15y-F-B_2_1-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-159
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-161/CODEX
+    Staining/HPAP-161_CODEX_Tail-of-Pancreas_OCT.ome.tiff
+  islet_image_name: HPAP161-T2D-58y-10y-M-T_3_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-161
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-163/CODEX
+    Staining/HPAP-163_CODEX_Body-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP163-T2D-59y-2y-F-B_2_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-163
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-165/CODEX
+    Staining/HPAP-165_CODEX_Body-of-pancreas_OCT_2.ome.tiff
+  islet_image_name: HPAP165-T2D-44y-NA-M-B_2_2-OCT.ome.tiff
+  label: T2D
+  patient_id: HPAP-165
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-170/CODEX
+    Staining/HPAP-170_CODEX_Head-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP170-H_1_2-OCT.ome.tiff
+  label: UNK
+  patient_id: HPAP-170
+- image_path: /nfs/turbo/umms-drjieliu1/projects/HPAP-Spatial/CODEX/hpapdata/HPAP-160/CODEX
+    Staining/HPAP-160_CODEX_Head-of-pancreas_OCT.ome.tiff
+  islet_image_name: HPAP160-ND-H-1-2-OCT.ome.tiff
+  label: ND
+  patient_id: HPAP-160
+resolution_txt: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/resolution.txt

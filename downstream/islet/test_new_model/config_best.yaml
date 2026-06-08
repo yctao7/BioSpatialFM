@@ -1,0 +1,350 @@
+# Config for best checkpoint (output/best/checkpoint_latest.pth)
+checkpoint_path: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/output/best/checkpoint_latest.pth
+model_type: vits16
+marker_metadata_csv: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/tutorials/codex_dataset/dataset/marker_info_with_metadata.csv
+
+# Islet identification settings (only used for SLOW path patients)
+islet_distance_threshold: 0
+min_islet_cells: 5          # DBSCAN minimum cluster size
+min_islet_cells_strict: 20  # post-filter: drop pseudo-islets with < 20 cells
+islet_margin: 10
+
+# Background / normalization
+dapi_channel_index: 4
+background_threshold: 0.01
+
+output_dir: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/downstream/islet/test_new_model/output
+# All patches (ND + T1D + AAB + T2D) consolidated here
+patches_save_dir: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/downstream/islet/test_new_model/output/all_patches_islet_csv
+batch_size: 32
+
+# Pre-saved patch locations (for FAST path)
+_all_patches_dir: &all_patches_dir /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/downstream/islet/test_new_model/output/all_patches_islet_csv
+
+_nd_train_patches: &nd_train_patches
+  patches_dir: *all_patches_dir
+  metadata_csv: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/downstream/islet/examine_embeddings/output/train_data/data.csv
+
+_nd_test_patches: &nd_test_patches
+  patches_dir: *all_patches_dir
+  metadata_csv: /nfs/turbo/umms-drjieliu1/usr/peterszj/BioSpatialFM/downstream/islet/examine_embeddings/output/test_data/data.csv
+
+_other_patches: &other_patches
+  patches_dir: *all_patches_dir
+
+patients:
+  # ---- ND (train) — FAST PATH ----
+  - patient_id: HPAP-011
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-018
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-037
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-040
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-042
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-044
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-046
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-047
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-056
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-095
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-104
+    label: ND
+    <<: *nd_train_patches
+
+  - patient_id: HPAP-148
+    label: ND
+    <<: *nd_train_patches
+
+  # ---- ND (test) — FAST PATH ----
+  - patient_id: HPAP-027
+    label: ND
+    <<: *nd_test_patches
+
+  - patient_id: HPAP-067
+    label: ND
+    <<: *nd_test_patches
+
+  - patient_id: HPAP-080
+    label: ND
+    <<: *nd_test_patches
+
+  - patient_id: HPAP-093
+    label: ND
+    <<: *nd_test_patches
+
+  - patient_id: HPAP-103
+    label: ND
+    <<: *nd_test_patches
+
+  - patient_id: HPAP-112
+    label: ND
+    <<: *nd_test_patches
+
+  - patient_id: HPAP-146
+    label: ND
+    <<: *nd_test_patches
+
+  # ---- T1D — FAST PATH ----
+  - patient_id: HPAP-015
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-023
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-030
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-048
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-055
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-064
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-071
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-073
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-084
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-087
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-089
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-102
+    label: T1D
+    <<: *other_patches
+
+  # ---- AAB — FAST PATH ----
+  - patient_id: HPAP-009
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-016
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-017
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-024
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-038
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-045
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-060
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-107
+    label: AAB
+    <<: *other_patches
+
+  - patient_id: HPAP-114
+    label: AAB
+    <<: *other_patches
+
+  # ---- T2D — FAST PATH ----
+  - patient_id: HPAP-053
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-059
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-066
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-074
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-075
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-077
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-101
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-117
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-128
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-159
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-160
+    label: T2D
+    <<: *other_patches
+
+  # ---- T1D (additional) ----
+  - patient_id: HPAP-150
+    label: T1D
+    <<: *other_patches
+
+  - patient_id: HPAP-151
+    label: T1D
+    <<: *other_patches
+
+  # ---- T2D (additional) ----
+  - patient_id: HPAP-007
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-013
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-058
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-062
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-065
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-070
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-076
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-081
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-083
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-088
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-090
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-091
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-096
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-106
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-115
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-126
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-133
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-147
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-153
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-153-img2
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-161
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-163
+    label: T2D
+    <<: *other_patches
+
+  - patient_id: HPAP-165
+    label: T2D
+    <<: *other_patches
+
+  # ---- UNK (excluded from disease analysis) ----
+  - patient_id: HPAP-094
+    label: UNK
+    <<: *other_patches
